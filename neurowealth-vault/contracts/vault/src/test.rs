@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use super::*;
-use soroban_sdk::{testutils::{Address as _, Events}, Address, Env, Symbol};
+use soroban_sdk::{testutils::{Address as _, Events}, Address, BytesN, Env, Symbol};
 
 fn setup_vault(env: &Env) -> (Address, Address, Address) {
     let contract_id = env.register_contract(None, NeuroWealthVault);
@@ -281,10 +281,116 @@ fn test_pause_and_unpause_events() {
     let client = NeuroWealthVaultClient::new(&env, &contract_id);
 
     assert_eq!(client.is_paused(), false);
-    
+
     client.pause();
     assert_eq!(client.is_paused(), true);
-    
+
     client.unpause();
     assert_eq!(client.is_paused(), false);
+}
+
+// ============================================================================
+// UPGRADE TESTS
+// ============================================================================
+
+/// Helper that installs the vault WASM in the test environment and returns
+/// a valid hash for use in upgrade tests.
+///
+/// This compiles the current contract (via `contractimport!`) and uploads it,
+/// giving us a real 32-byte hash the deployer will accept.
+mod vault_wasm {
+    soroban_sdk::contractimport!(
+        file = "../../../target/wasm32-unknown-unknown/release/vault.wasm"
+    );
+}
+
+fn upload_vault_wasm(env: &Env) -> BytesN<32> {
+    env.deployer().upload_contract_wasm(vault_wasm::WASM)
+}
+
+#[test]
+fn test_version_is_1_after_initialization() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, _agent, _owner) = setup_vault(&env);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+
+    assert_eq!(client.get_version(), 1u32);
+}
+
+#[test]
+fn test_owner_can_upgrade() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, _agent, _owner) = setup_vault(&env);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+
+    let owner = client.get_owner();
+    let new_wasm_hash = upload_vault_wasm(&env);
+
+    client.upgrade(&owner, &new_wasm_hash);
+
+    assert_eq!(client.get_version(), 2u32);
+}
+
+#[test]
+#[should_panic(expected = "Not authorized: caller is not the owner")]
+fn test_non_owner_cannot_upgrade() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, _agent, _owner) = setup_vault(&env);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+
+    let non_owner = Address::generate(&env);
+    // Use any 32-byte hash — the auth check fires before wasm lookup
+    let fake_wasm_hash = BytesN::from_array(&env, &[0u8; 32]);
+
+    client.upgrade(&non_owner, &fake_wasm_hash);
+}
+
+#[test]
+fn test_version_increments_correctly() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, _agent, _owner) = setup_vault(&env);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+
+    let owner = client.get_owner();
+    let new_wasm_hash = upload_vault_wasm(&env);
+
+    assert_eq!(client.get_version(), 1u32);
+
+    client.upgrade(&owner, &new_wasm_hash.clone());
+    assert_eq!(client.get_version(), 2u32);
+
+    client.upgrade(&owner, &new_wasm_hash);
+    assert_eq!(client.get_version(), 3u32);
+}
+
+#[test]
+fn test_upgrade_emits_upgraded_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, _agent, _owner) = setup_vault(&env);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+
+    let owner = client.get_owner();
+    let new_wasm_hash = upload_vault_wasm(&env);
+
+    client.upgrade(&owner, &new_wasm_hash);
+
+    let events = env.events().all();
+    let upgraded_events: Vec<_> = events.iter()
+        .filter(|e| e.0 == (symbol_short!("upgraded"),))
+        .collect();
+    assert_eq!(upgraded_events.len(), 1);
+
+    let event_data: UpgradedEvent = upgraded_events[0].1.clone().try_into().unwrap();
+    assert_eq!(event_data.old_version, 1u32);
+    assert_eq!(event_data.new_version, 2u32);
 }
