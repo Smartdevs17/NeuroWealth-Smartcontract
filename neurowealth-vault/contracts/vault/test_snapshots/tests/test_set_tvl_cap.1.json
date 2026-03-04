@@ -12,18 +12,12 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "set_limits",
+              "function_name": "set_tvl_cap",
               "args": [
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 20000000000
-                  }
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 200000000000
+                    "lo": 150000000000
                   }
                 }
               ]
@@ -32,7 +26,8 @@
           "sub_invocations": []
         }
       ]
-    ]
+    ],
+    []
   ],
   "ledger": {
     "protocol_version": 21,
@@ -129,7 +124,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 200000000000
+                            "lo": 150000000000
                           }
                         }
                       },
@@ -156,7 +151,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 20000000000
+                            "lo": 10000000000
                           }
                         }
                       },
@@ -281,7 +276,7 @@
           "v0": {
             "topics": [
               {
-                "symbol": "v_init"
+                "symbol": "init"
               }
             ],
             "data": {
@@ -356,24 +351,14 @@
                 "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
               },
               {
-                "symbol": "set_limits"
+                "symbol": "set_tvl_cap"
               }
             ],
             "data": {
-              "vec": [
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 20000000000
-                  }
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 200000000000
-                  }
-                }
-              ]
+              "i128": {
+                "hi": 0,
+                "lo": 150000000000
+              }
             }
           }
         }
@@ -389,7 +374,7 @@
           "v0": {
             "topics": [
               {
-                "symbol": "lim_upd"
+                "symbol": "limits"
               }
             ],
             "data": {
@@ -401,7 +386,7 @@
                   "val": {
                     "i128": {
                       "hi": 0,
-                      "lo": 200000000000
+                      "lo": 150000000000
                     }
                   }
                 },
@@ -412,7 +397,7 @@
                   "val": {
                     "i128": {
                       "hi": 0,
-                      "lo": 20000000000
+                      "lo": 10000000000
                     }
                   }
                 },
@@ -457,10 +442,60 @@
                 "symbol": "fn_return"
               },
               {
-                "symbol": "set_limits"
+                "symbol": "set_tvl_cap"
               }
             ],
             "data": "void"
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": null,
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "fn_call"
+              },
+              {
+                "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
+              },
+              {
+                "symbol": "get_tvl_cap"
+              }
+            ],
+            "data": "void"
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "fn_return"
+              },
+              {
+                "symbol": "get_tvl_cap"
+              }
+            ],
+            "data": {
+              "i128": {
+                "hi": 0,
+                "lo": 150000000000
+              }
+            }
           }
         }
       },

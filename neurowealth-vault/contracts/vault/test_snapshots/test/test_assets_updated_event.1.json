@@ -15,9 +15,6 @@
               "function_name": "update_total_assets",
               "args": [
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                },
-                {
                   "i128": {
                     "hi": 0,
                     "lo": 50000000000
@@ -104,21 +101,6 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "TotalAssets"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "i128": {
-                            "hi": 0,
-                            "lo": 50000000000
-                          }
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
                               "symbol": "TotalDeposits"
                             }
                           ]
@@ -126,22 +108,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 0
-                          }
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "TotalShares"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "i128": {
-                            "hi": 0,
-                            "lo": 0
+                            "lo": 50000000000
                           }
                         }
                       },
@@ -387,17 +354,10 @@
               }
             ],
             "data": {
-              "vec": [
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 50000000000
-                  }
-                }
-              ]
+              "i128": {
+                "hi": 0,
+                "lo": 50000000000
+              }
             }
           }
         }

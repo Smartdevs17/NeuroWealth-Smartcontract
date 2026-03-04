@@ -12,18 +12,15 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "set_limits",
+              "function_name": "rebalance",
               "args": [
                 {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 20000000000
-                  }
+                  "symbol": "balanced"
                 },
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 200000000000
+                    "lo": 850
                   }
                 }
               ]
@@ -129,7 +126,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 200000000000
+                            "lo": 100000000000
                           }
                         }
                       },
@@ -156,7 +153,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 20000000000
+                            "lo": 10000000000
                           }
                         }
                       },
@@ -281,7 +278,7 @@
           "v0": {
             "topics": [
               {
-                "symbol": "v_init"
+                "symbol": "init"
               }
             ],
             "data": {
@@ -356,21 +353,18 @@
                 "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
               },
               {
-                "symbol": "set_limits"
+                "symbol": "rebalance"
               }
             ],
             "data": {
               "vec": [
                 {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 20000000000
-                  }
+                  "symbol": "balanced"
                 },
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 200000000000
+                    "lo": 850
                   }
                 }
               ]
@@ -389,53 +383,28 @@
           "v0": {
             "topics": [
               {
-                "symbol": "lim_upd"
+                "symbol": "rebalance"
               }
             ],
             "data": {
               "map": [
                 {
                   "key": {
-                    "symbol": "new_max"
+                    "symbol": "expected_apy"
                   },
                   "val": {
                     "i128": {
                       "hi": 0,
-                      "lo": 200000000000
+                      "lo": 850
                     }
                   }
                 },
                 {
                   "key": {
-                    "symbol": "new_min"
+                    "symbol": "protocol"
                   },
                   "val": {
-                    "i128": {
-                      "hi": 0,
-                      "lo": 20000000000
-                    }
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "old_max"
-                  },
-                  "val": {
-                    "i128": {
-                      "hi": 0,
-                      "lo": 100000000000
-                    }
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "old_min"
-                  },
-                  "val": {
-                    "i128": {
-                      "hi": 0,
-                      "lo": 10000000000
-                    }
+                    "symbol": "balanced"
                   }
                 }
               ]
@@ -457,7 +426,7 @@
                 "symbol": "fn_return"
               },
               {
-                "symbol": "set_limits"
+                "symbol": "rebalance"
               }
             ],
             "data": "void"
