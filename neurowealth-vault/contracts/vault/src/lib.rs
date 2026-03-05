@@ -149,6 +149,12 @@ pub enum DataKey {
     /// Per-user deposit cap
     /// Maximum amount a single user can deposit
     UserDepositCap,
+    /// Minimum deposit amount
+    /// Minimum amount required for a single deposit
+    MinDeposit,
+    /// Maximum deposit amount
+    /// Maximum amount allowed for a single deposit
+    MaxDeposit,
     /// Contract version for upgrade tracking
     Version,
 }
@@ -464,7 +470,8 @@ impl NeuroWealthVault {
 
         Self::require_not_paused(&env);
         Self::require_positive_amount(amount);
-        Self::require_minimum_deposit(amount);
+        Self::require_minimum_deposit(&env, amount);
+        Self::require_maximum_deposit(&env, amount);
         Self::require_within_deposit_cap(&env, &user, amount);
         Self::require_within_tvl_cap(&env, amount);
 
@@ -1068,6 +1075,68 @@ impl NeuroWealthVault {
         );
     }
 
+    /// Sets both the minimum and maximum deposit limits in a single transaction.
+    ///
+    /// This function allows updating both deposit limits atomically and emits a
+    /// `LimitsUpdatedEvent` with all old and new values.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment
+    /// * `min` - New minimum deposit limit in USDC units (7 decimal places)
+    /// * `max` - New maximum deposit limit in USDC units (7 decimal places)
+    ///
+    /// # Returns
+    /// Nothing. This function updates both deposit limits and returns nothing.
+    ///
+    /// # Panics
+    /// - If the caller is not the owner
+    /// - If min is less than 1 USDC (1_000_000 stroops)
+    /// - If max is less than min
+    ///
+    /// # Events
+    /// Emits `LimitsUpdatedEvent` with:
+    /// - `old_min`: Previous minimum deposit limit
+    /// - `new_min`: New minimum deposit limit
+    /// - `old_max`: Previous maximum deposit limit
+    /// - `new_max`: New maximum deposit limit
+    ///
+    /// # Security
+    /// - Only the owner can modify the deposit limits
+    pub fn set_deposit_limits(env: Env, min: i128, max: i128) {
+        Self::require_is_owner(&env);
+
+        // Validate limits
+        assert!(min >= 1_000_000, "Minimum deposit must be at least 1 USDC");
+        assert!(
+            max >= min,
+            "Maximum deposit must be greater than or equal to minimum"
+        );
+
+        let old_min = env
+            .storage()
+            .instance()
+            .get(&DataKey::MinDeposit)
+            .unwrap_or(1_000_000);
+        let old_max = env
+            .storage()
+            .instance()
+            .get(&DataKey::MaxDeposit)
+            .unwrap_or(10_000_000_000);
+
+        env.storage().instance().set(&DataKey::MinDeposit, &min);
+        env.storage().instance().set(&DataKey::MaxDeposit, &max);
+
+        env.events().publish(
+            (symbol_short!("l_upd"),),
+            LimitsUpdatedEvent {
+                old_min,
+                new_min: min,
+                old_max,
+                new_max: max,
+            },
+        );
+    }
+
     /// Returns the current TVL cap.
     ///
     /// # Arguments
@@ -1091,6 +1160,34 @@ impl NeuroWealthVault {
             .instance()
             .get(&DataKey::UserDepositCap)
             .unwrap_or(0)
+    }
+
+    /// Returns the current minimum deposit limit.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment
+    ///
+    /// # Returns
+    /// The current minimum deposit limit in USDC units (7 decimal places)
+    pub fn get_min_deposit(env: Env) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::MinDeposit)
+            .unwrap_or(1_000_000) // Default 1 USDC
+    }
+
+    /// Returns the current maximum deposit limit.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment
+    ///
+    /// # Returns
+    /// The current maximum deposit limit in USDC units (7 decimal places)
+    pub fn get_max_deposit(env: Env) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::MaxDeposit)
+            .unwrap_or(10_000_000_000) // Default 10K USDC
     }
 
     /// Updates the authorized AI agent address.
@@ -1655,13 +1752,34 @@ impl NeuroWealthVault {
 
     /// Validates that a deposit meets the minimum requirement.
     ///
-    /// Minimum deposit is 1 USDC (1_000_000 in 7-decimal units).
+    /// Minimum deposit is read from storage (default 1 USDC).
     ///
     /// # Panics
     /// - If amount < minimum deposit
     #[inline]
-    fn require_minimum_deposit(amount: i128) {
-        assert!(amount >= 1_000_000, "Minimum deposit is 1 USDC");
+    fn require_minimum_deposit(env: &Env, amount: i128) {
+        let min_deposit: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MinDeposit)
+            .unwrap_or(1_000_000);
+        assert!(amount >= min_deposit, "Below minimum deposit");
+    }
+
+    /// Validates that a deposit is within the maximum limit.
+    ///
+    /// Maximum deposit is read from storage (default 10,000 USDC).
+    ///
+    /// # Panics
+    /// - If amount > maximum deposit
+    #[inline]
+    fn require_maximum_deposit(env: &Env, amount: i128) {
+        let max_deposit: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MaxDeposit)
+            .unwrap_or(10_000_000_000);
+        assert!(amount <= max_deposit, "Exceeds maximum deposit");
     }
 
     /// Validates that a deposit is within the user's cap.
@@ -2084,7 +2202,7 @@ mod tests {
     /// Test that deposit() enforces minimum deposit
     /// Test that deposit() enforces minimum deposit
     #[test]
-    #[should_panic(expected = "Minimum deposit is 1 USDC")]
+    #[should_panic(expected = "Below minimum deposit")]
     fn test_deposit_enforces_minimum() {
         let env = Env::default();
         env.mock_all_auths();
