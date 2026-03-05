@@ -98,7 +98,7 @@
 
 use core::cmp::min;
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, token, Address, Env, Symbol,
+    contract, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env, Symbol,
 };
 
 // ============================================================================
@@ -317,6 +317,18 @@ pub struct OwnershipTransferCancelledEvent {
 pub struct AssetsUpdatedEvent {
     pub old_total: i128,
     pub new_total: i128,
+}
+
+/// Emitted when the contract is upgraded to a new WASM implementation.
+///
+/// # Topics
+/// - `SymbolShort("upgraded")` - Event identifier
+#[contracttype]
+pub struct UpgradedEvent {
+    /// The contract version before the upgrade
+    pub old_version: u32,
+    /// The contract version after the upgrade
+    pub new_version: u32,
 }
 
 // ============================================================================
@@ -1373,25 +1385,29 @@ impl NeuroWealthVault {
     pub fn upgrade(env: Env, owner: Address, new_wasm_hash: BytesN<32>) {
         owner.require_auth();
 
-        let stored_owner: Address = env.storage().instance()
-            .get(&DataKey::Owner).unwrap();
-        assert!(owner == stored_owner, "Not authorized: caller is not the owner");
+        let stored_owner: Address = env.storage().instance().get(&DataKey::Owner).unwrap();
+        assert!(
+            owner == stored_owner,
+            "Not authorized: caller is not the owner"
+        );
 
-        let old_version: u32 = env.storage().instance()
-            .get(&DataKey::Version)
-            .unwrap_or(1);
+        let old_version: u32 = env.storage().instance().get(&DataKey::Version).unwrap_or(1);
 
         let new_version = old_version + 1;
-        env.storage().instance().set(&DataKey::Version, &new_version);
+        env.storage()
+            .instance()
+            .set(&DataKey::Version, &new_version);
 
         env.deployer().update_current_contract_wasm(new_wasm_hash);
 
         env.events().publish(
             (symbol_short!("upgraded"),),
-            UpgradedEvent { old_version, new_version }
+            UpgradedEvent {
+                old_version,
+                new_version,
+            },
         );
     }
-
 
     // ==========================================================================
     // READ FUNCTIONS
