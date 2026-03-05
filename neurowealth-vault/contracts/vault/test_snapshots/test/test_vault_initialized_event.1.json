@@ -79,37 +79,7 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "TotalAssets"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "i128": {
-                            "hi": 0,
-                            "lo": 0
-                          }
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
                               "symbol": "TotalDeposits"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "i128": {
-                            "hi": 0,
-                            "lo": 0
-                          }
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "TotalShares"
                             }
                           ]
                         },
@@ -250,7 +220,7 @@
           "v0": {
             "topics": [
               {
-                "symbol": "v_init"
+                "symbol": "vlt_init"
               }
             ],
             "data": {

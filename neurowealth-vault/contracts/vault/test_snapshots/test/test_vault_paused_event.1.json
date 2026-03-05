@@ -13,11 +13,7 @@
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
               "function_name": "pause",
-              "args": [
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                }
-              ]
+              "args": []
             }
           },
           "sub_invocations": []
@@ -98,37 +94,7 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "TotalAssets"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "i128": {
-                            "hi": 0,
-                            "lo": 0
-                          }
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
                               "symbol": "TotalDeposits"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "i128": {
-                            "hi": 0,
-                            "lo": 0
-                          }
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "TotalShares"
                             }
                           ]
                         },
@@ -302,7 +268,7 @@
           "v0": {
             "topics": [
               {
-                "symbol": "v_init"
+                "symbol": "vlt_init"
               }
             ],
             "data": {
@@ -380,9 +346,7 @@
                 "symbol": "pause"
               }
             ],
-            "data": {
-              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-            }
+            "data": "void"
           }
         }
       },
@@ -397,14 +361,14 @@
           "v0": {
             "topics": [
               {
-                "symbol": "v_paused"
+                "symbol": "paused"
               }
             ],
             "data": {
               "map": [
                 {
                   "key": {
-                    "symbol": "owner"
+                    "symbol": "caller"
                   },
                   "val": {
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
