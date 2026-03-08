@@ -433,12 +433,7 @@ impl BlendPoolClient {
     ///
     /// # Returns
     /// The balance of assets supplied by the user
-    fn get_balance(
-        _env: &Env,
-        _pool_address: &Address,
-        _asset: &Address,
-        _user: &Address,
-    ) -> i128 {
+    fn get_balance(_env: &Env, _pool_address: &Address, _asset: &Address, _user: &Address) -> i128 {
         // Call Blend's get_user_reserve_data function
         // Function signature: get_user_reserve_data(env, key: UserReserveKey) -> UserReserveData
         // UserReserveKey is a struct with { user: Address, asset: Address }
@@ -713,12 +708,12 @@ impl NeuroWealthVault {
             if vault_balance < amount {
                 // Calculate how much we need to withdraw
                 let needed = amount - vault_balance;
-                
+
                 // Attempt to withdraw from Blend
                 // If this fails, we'll check balance again and may panic
                 // This ensures funds are available even when actively earning yield
                 let _withdrawn = Self::withdraw_from_blend(&env, needed);
-                
+
                 // Verify we now have enough balance
                 // If not, the transaction will fail at the transfer step
                 let new_balance = token_client.balance(&env.current_contract_address());
@@ -871,16 +866,17 @@ impl NeuroWealthVault {
                 .persistent()
                 .get(&DataKey::Shares(user.clone()))
                 .unwrap_or(0);
-            
+
             if user_shares > 0 {
                 let total_shares = Self::get_total_shares_internal(&env);
                 let total_assets = Self::get_total_assets_internal(&env);
-                
+
                 if total_shares > 0 && total_assets > 0 {
                     let estimated_amount = Self::convert_to_assets_internal(&env, user_shares);
-                    
+
                     // Check vault's USDC balance
-                    let usdc_token: Address = env.storage().instance().get(&DataKey::UsdcToken).unwrap();
+                    let usdc_token: Address =
+                        env.storage().instance().get(&DataKey::UsdcToken).unwrap();
                     let token_client = token::Client::new(&env, &usdc_token);
                     let vault_balance = token_client.balance(&env.current_contract_address());
 
@@ -1044,7 +1040,7 @@ impl NeuroWealthVault {
                 // If supply fails, we don't panic to prevent state inconsistency
                 // The error will be visible in the transaction result
                 let supplied = Self::supply_to_blend(&env, vault_balance);
-                
+
                 // Update total assets to reflect deployed funds
                 // Note: This is a conservative approach - in production, you may want
                 // to track deployed vs available funds separately
@@ -2208,7 +2204,8 @@ impl NeuroWealthVault {
         // Note: Blend's supply function may require the vault to transfer USDC first,
         // then call supply. The exact pattern depends on Blend's interface.
         // For now, we assume Blend handles the transfer internally via approval.
-        let supplied = BlendPoolClient::supply(env, &pool_address, &usdc_token, amount, &vault_address);
+        let supplied =
+            BlendPoolClient::supply(env, &pool_address, &usdc_token, amount, &vault_address);
 
         // Update current protocol tracking
         env.storage()
@@ -2267,7 +2264,8 @@ impl NeuroWealthVault {
         // Update current protocol tracking if fully withdrawn
         if withdrawn > 0 && amount == 0 {
             // Check if balance is now zero
-            let remaining = BlendPoolClient::get_balance(env, &pool_address, &usdc_token, &vault_address);
+            let remaining =
+                BlendPoolClient::get_balance(env, &pool_address, &usdc_token, &vault_address);
             if remaining == 0 {
                 env.storage()
                     .instance()
