@@ -2652,3 +2652,7 @@ mod tests {
         client.rebalance(&protocol, &expected_apy);
     }
 }
+
+#[cfg(test)]
+#[path = "tests/mod.rs"]
+mod comprehensive_tests;
