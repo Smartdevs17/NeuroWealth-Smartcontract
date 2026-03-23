@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "develop", "feat/**"]
+  pull_request:
+    branches: ["main", "develop"]
+
+jobs:
+  build-test:
+    name: Build, Lint & Test
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+
+      - name: Install Rust toolchain with components
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: neurowealth-vault
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            neurowealth-vault/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+
+      - name: Install Stellar CLI
+        run: |
+          curl -sSL https://github.com/stellar/soroban-tools/releases/download/v21.2.0/soroban-cli-21.2.0-x86_64-unknown-linux-gnu.tar.gz | tar -xz
+          sudo mv soroban /usr/local/bin/
+          soroban --version
+
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+
+      - name: Lint with Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  
+      - name: Build contract WASM (MVP-compatible)
+        working-directory: neurowealth-vault
+        run: |
+          RUSTFLAGS="-C target-cpu=mvp" cargo build \
+            --target wasm32-unknown-unknown \
+            --release
+          cargo install wasm-opt --locked
+          wasm-opt --strip-target-features --mvp-features \
+            target/wasm32-unknown-unknown/release/neurowealth_vault.wasm \
+            -o target/wasm32-unknown-unknown/release/neurowealth_vault.wasm
+
+
+      - name: Run vault tests
+        working-directory: neurowealth-vault/contracts/vault
+        run: cargo test --verbose
+
+
+      - name: Run main tests
+        working-directory: neurowealth-vault
+        run: cargo test --verbose
+
+
+      - name: Tail last 20 lines of tests
+        working-directory: neurowealth-vault/contracts/vault
+        run: cargo test -- --nocapture 2>&1 | tail -20
