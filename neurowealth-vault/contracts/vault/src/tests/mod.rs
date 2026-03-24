@@ -6,6 +6,6 @@ mod test_limits;
 mod test_pause;
 mod test_rebalance;
 mod test_shares;
-mod utils;
 mod test_withdraw;
 mod test_yield;
+mod utils;
