@@ -186,7 +186,10 @@ fn test_deposit_emits_event() {
 
     mint_and_deposit(&env, &client, &usdc_token, &user, amount);
 
-    let deposit_events =
-        find_events_by_topic(env.events().all(), &env, soroban_sdk::symbol_short!("deposit"));
+    let deposit_events = find_events_by_topic(
+        env.events().all(),
+        &env,
+        soroban_sdk::symbol_short!("deposit"),
+    );
     assert!(!deposit_events.is_empty(), "Deposit should emit an event");
 }

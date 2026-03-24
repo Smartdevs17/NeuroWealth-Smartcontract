@@ -29,9 +29,15 @@ fn test_update_agent_emits_event() {
     let new_agent = Address::generate(&env);
     client.update_agent(&new_agent);
 
-    let agent_events =
-        find_events_by_topic(env.events().all(), &env, soroban_sdk::symbol_short!("agent"));
-    assert!(!agent_events.is_empty(), "update_agent should emit an event");
+    let agent_events = find_events_by_topic(
+        env.events().all(),
+        &env,
+        soroban_sdk::symbol_short!("agent"),
+    );
+    assert!(
+        !agent_events.is_empty(),
+        "update_agent should emit an event"
+    );
 }
 
 #[test]
@@ -71,7 +77,10 @@ fn test_accept_ownership_completes_transfer() {
     assert_eq!(client.get_owner(), new_owner);
     assert_ne!(client.get_owner(), old_owner);
     // Pending owner is cleared after acceptance
-    assert!(client.get_pending_owner().is_none(), "Pending owner should be cleared");
+    assert!(
+        client.get_pending_owner().is_none(),
+        "Pending owner should be cleared"
+    );
 }
 
 #[test]
@@ -105,7 +114,10 @@ fn test_cancel_ownership_transfer_clears_pending() {
 
     client.cancel_ownership_transfer();
 
-    assert!(client.get_pending_owner().is_none(), "Pending owner should be cleared after cancel");
+    assert!(
+        client.get_pending_owner().is_none(),
+        "Pending owner should be cleared after cancel"
+    );
 }
 
 #[test]

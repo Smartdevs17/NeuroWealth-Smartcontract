@@ -42,7 +42,10 @@ fn test_rebalance_emits_event() {
 
     let rebalance_events =
         find_events_by_topic(env.events().all(), &env, symbol_short!("rebalance"));
-    assert!(!rebalance_events.is_empty(), "Rebalance should emit an event");
+    assert!(
+        !rebalance_events.is_empty(),
+        "Rebalance should emit an event"
+    );
 }
 
 #[test]

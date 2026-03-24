@@ -45,7 +45,10 @@ fn test_partial_withdrawal_reduces_shares() {
     client.withdraw(&user, &withdraw_amount);
 
     let remaining_shares = client.get_shares(&user);
-    assert!(remaining_shares < initial_shares, "Shares should decrease after partial withdraw");
+    assert!(
+        remaining_shares < initial_shares,
+        "Shares should decrease after partial withdraw"
+    );
 }
 
 #[test]
@@ -157,7 +160,10 @@ fn test_withdraw_emits_event() {
     let withdraw_amount = 3_000_000_i128;
     client.withdraw(&user, &withdraw_amount);
 
-    let withdraw_events =
-        find_events_by_topic(env.events().all(), &env, soroban_sdk::symbol_short!("withdraw"));
+    let withdraw_events = find_events_by_topic(
+        env.events().all(),
+        &env,
+        soroban_sdk::symbol_short!("withdraw"),
+    );
     assert!(!withdraw_events.is_empty(), "Withdraw should emit an event");
 }

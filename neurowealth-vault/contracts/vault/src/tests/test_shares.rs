@@ -125,9 +125,16 @@ fn test_share_price_increases_after_yield() {
     client.update_total_assets(&agent, &new_total);
 
     // After yield: same shares but each share is worth more assets
-    assert_eq!(client.get_shares(&user), shares_before, "Share count unchanged by yield");
+    assert_eq!(
+        client.get_shares(&user),
+        shares_before,
+        "Share count unchanged by yield"
+    );
     let balance_after = client.get_balance(&user);
-    assert!(balance_after > deposit_amount, "User balance should grow with yield");
+    assert!(
+        balance_after > deposit_amount,
+        "User balance should grow with yield"
+    );
     assert_eq!(balance_after, new_total);
 }
 

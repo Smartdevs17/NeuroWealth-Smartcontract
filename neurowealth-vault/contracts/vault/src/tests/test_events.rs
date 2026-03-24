@@ -1,7 +1,7 @@
 //! Tests verifying that each contract operation emits the expected event
 
 use super::test_utils::*;
-use soroban_sdk::{testutils::Address as _, symbol_short, Address, Env};
+use soroban_sdk::{symbol_short, testutils::Address as _, Address, Env};
 
 #[test]
 fn test_initialize_emits_init_event() {
@@ -16,7 +16,11 @@ fn test_initialize_emits_init_event() {
     client.initialize(&agent, &usdc_token);
 
     let init_events = find_events_by_topic(env.events().all(), &env, symbol_short!("init"));
-    assert_eq!(init_events.len(), 1, "Exactly one init event should be emitted");
+    assert_eq!(
+        init_events.len(),
+        1,
+        "Exactly one init event should be emitted"
+    );
 }
 
 #[test]
@@ -91,9 +95,11 @@ fn test_emergency_pause_emits_emergency_event() {
 
     client.emergency_pause(&agent);
 
-    let emergency_events =
-        find_events_by_topic(env.events().all(), &env, symbol_short!("emerg"));
-    assert!(!emergency_events.is_empty(), "Emergency pause should emit an event");
+    let emergency_events = find_events_by_topic(env.events().all(), &env, symbol_short!("emerg"));
+    assert!(
+        !emergency_events.is_empty(),
+        "Emergency pause should emit an event"
+    );
 }
 
 #[test]
@@ -107,7 +113,10 @@ fn test_set_deposit_limits_emits_limits_event() {
     client.set_deposit_limits(&2_000_000_i128, &20_000_000_000_i128);
 
     let limits_events = find_events_by_topic(env.events().all(), &env, symbol_short!("l_upd"));
-    assert!(!limits_events.is_empty(), "set_deposit_limits should emit a limits event");
+    assert!(
+        !limits_events.is_empty(),
+        "set_deposit_limits should emit a limits event"
+    );
 }
 
 #[test]
@@ -121,7 +130,10 @@ fn test_update_agent_emits_agent_event() {
     client.update_agent(&Address::generate(&env));
 
     let agent_events = find_events_by_topic(env.events().all(), &env, symbol_short!("agent"));
-    assert!(!agent_events.is_empty(), "update_agent should emit an event");
+    assert!(
+        !agent_events.is_empty(),
+        "update_agent should emit an event"
+    );
 }
 
 #[test]
@@ -142,7 +154,10 @@ fn test_update_total_assets_emits_assets_event() {
     client.update_total_assets(&agent, &(deposit_amount + yield_amount));
 
     let assets_events = find_events_by_topic(env.events().all(), &env, symbol_short!("assets"));
-    assert!(!assets_events.is_empty(), "update_total_assets should emit an event");
+    assert!(
+        !assets_events.is_empty(),
+        "update_total_assets should emit an event"
+    );
 }
 
 #[test]
@@ -157,5 +172,8 @@ fn test_rebalance_emits_rebalance_event() {
 
     let rebalance_events =
         find_events_by_topic(env.events().all(), &env, symbol_short!("rebalance"));
-    assert!(!rebalance_events.is_empty(), "rebalance should emit an event");
+    assert!(
+        !rebalance_events.is_empty(),
+        "rebalance should emit an event"
+    );
 }

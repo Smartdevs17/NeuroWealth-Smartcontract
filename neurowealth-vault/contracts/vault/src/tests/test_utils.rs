@@ -2,11 +2,9 @@
 
 extern crate std;
 
-use crate::*;
 use soroban_sdk::{
-    contract, contractimpl, contracttype,
-    testutils::Address as _,
-    Address, Env, Symbol, TryFromVal, Val, Vec,
+    contract, contractimpl, contracttype, testutils::Address as _, Address, Env, Symbol,
+    TryFromVal, Val, Vec,
 };
 
 // Re-export so each submodule only needs `use super::test_utils::*;`
@@ -134,7 +132,7 @@ pub fn find_events_by_topic(
                 if let Some(t) = topics.get(j) {
                     if let Ok(s) = Symbol::try_from_val(env, &t) {
                         if s == topic {
-                            result.push((contract_addr.clone(), topics.clone(), data.clone()));
+                            result.push((contract_addr.clone(), topics.clone(), data));
                             break;
                         }
                     }

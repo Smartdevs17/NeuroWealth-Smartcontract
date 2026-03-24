@@ -68,8 +68,14 @@ fn test_yield_increases_user_asset_balance() {
     client.update_total_assets(&agent, &new_total_assets);
 
     let balance_after_yield = client.get_balance(&user);
-    assert!(balance_after_yield > balance_before_yield, "Balance should increase with yield");
-    assert_eq!(balance_after_yield, new_total_assets, "User should get full proportional share");
+    assert!(
+        balance_after_yield > balance_before_yield,
+        "Balance should increase with yield"
+    );
+    assert_eq!(
+        balance_after_yield, new_total_assets,
+        "User should get full proportional share"
+    );
 }
 
 #[test]
@@ -140,7 +146,13 @@ fn test_yield_emits_event() {
     token_client.mint(&contract_id, &yield_amount);
     client.update_total_assets(&agent, &new_total);
 
-    let assets_events =
-        find_events_by_topic(env.events().all(), &env, soroban_sdk::symbol_short!("assets"));
-    assert!(!assets_events.is_empty(), "Assets update should emit an event");
+    let assets_events = find_events_by_topic(
+        env.events().all(),
+        &env,
+        soroban_sdk::symbol_short!("assets"),
+    );
+    assert!(
+        !assets_events.is_empty(),
+        "Assets update should emit an event"
+    );
 }

@@ -53,20 +53,32 @@ fn test_initialize_default_values() {
 
     // Verify actual defaults set by initialize()
     assert!(!client.is_paused(), "Vault should start unpaused");
-    assert_eq!(client.get_min_deposit(), 1_000_000_i128, "Default min deposit should be 1 USDC");
+    assert_eq!(
+        client.get_min_deposit(),
+        1_000_000_i128,
+        "Default min deposit should be 1 USDC"
+    );
     assert_eq!(
         client.get_max_deposit(),
         10_000_000_000_i128,
         "Default max deposit should be 10K USDC"
     );
     // TvLCap and UserDepositCap are set to non-zero defaults by initialize()
-    assert_eq!(client.get_tvl_cap(), 100_000_000_000_i128, "Default TVL cap is 100M USDC");
+    assert_eq!(
+        client.get_tvl_cap(),
+        100_000_000_000_i128,
+        "Default TVL cap is 100M USDC"
+    );
     assert_eq!(
         client.get_user_deposit_cap(),
         10_000_000_000_i128,
         "Default user deposit cap is 10K USDC"
     );
-    assert_eq!(client.get_total_deposits(), 0, "Initial deposits should be 0");
+    assert_eq!(
+        client.get_total_deposits(),
+        0,
+        "Initial deposits should be 0"
+    );
     assert_eq!(client.get_total_assets(), 0, "Initial assets should be 0");
 }
 

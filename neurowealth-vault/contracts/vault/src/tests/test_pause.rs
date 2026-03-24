@@ -149,8 +149,11 @@ fn test_pause_emits_event() {
 
     client.pause(&owner);
 
-    let pause_events =
-        find_events_by_topic(env.events().all(), &env, soroban_sdk::symbol_short!("paused"));
+    let pause_events = find_events_by_topic(
+        env.events().all(),
+        &env,
+        soroban_sdk::symbol_short!("paused"),
+    );
     assert!(!pause_events.is_empty(), "Pause should emit an event");
 }
 
@@ -164,7 +167,13 @@ fn test_emergency_pause_emits_event() {
 
     client.emergency_pause(&agent);
 
-    let emergency_events =
-        find_events_by_topic(env.events().all(), &env, soroban_sdk::symbol_short!("emerg"));
-    assert!(!emergency_events.is_empty(), "Emergency pause should emit an event");
+    let emergency_events = find_events_by_topic(
+        env.events().all(),
+        &env,
+        soroban_sdk::symbol_short!("emerg"),
+    );
+    assert!(
+        !emergency_events.is_empty(),
+        "Emergency pause should emit an event"
+    );
 }
