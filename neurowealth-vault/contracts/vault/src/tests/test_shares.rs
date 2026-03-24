@@ -1,6 +1,6 @@
 //! Tests for share-based accounting (ERC-4626-inspired model)
 
-use super::test_utils::*;
+use super::utils::*;
 use soroban_sdk::{testutils::Address as _, Address, Env};
 
 #[test]

@@ -7,7 +7,7 @@ use soroban_sdk::{
     TryFromVal, Val, Vec,
 };
 
-// Re-export so each submodule only needs `use super::test_utils::*;`
+// Re-export so each submodule only needs `use super::utils::*;`
 pub use crate::{NeuroWealthVault, NeuroWealthVaultClient};
 pub use soroban_sdk::testutils::Events;
 

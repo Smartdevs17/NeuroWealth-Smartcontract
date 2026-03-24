@@ -1,6 +1,6 @@
 //! Tests for deposit limits and caps
 
-use super::test_utils::*;
+use super::utils::*;
 use soroban_sdk::{testutils::Address as _, Address, Env};
 
 #[test]

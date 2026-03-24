@@ -1,6 +1,6 @@
 //! Tests for ownership and agent access control
 
-use super::test_utils::*;
+use super::utils::*;
 use soroban_sdk::{testutils::Address as _, Address, Env};
 
 #[test]

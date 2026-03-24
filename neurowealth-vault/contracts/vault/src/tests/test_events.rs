@@ -1,6 +1,6 @@
 //! Tests verifying that each contract operation emits the expected event
 
-use super::test_utils::*;
+use super::utils::*;
 use soroban_sdk::{symbol_short, testutils::Address as _, Address, Env};
 
 #[test]
