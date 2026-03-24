@@ -1,7 +1,7 @@
-//! Tests for yield functionality
+//! Tests for yield / total-assets update functionality
 
 use super::test_utils::*;
-use soroban_sdk::{testutils::{Address as _, Events}, Address, Env, Vec};
+use soroban_sdk::{testutils::Address as _, Address, Env};
 
 #[test]
 fn test_agent_can_update_total_assets() {
@@ -10,39 +10,39 @@ fn test_agent_can_update_total_assets() {
 
     let (contract_id, agent, _owner, usdc_token) = setup_vault_with_token(&env);
     let client = NeuroWealthVaultClient::new(&env, &contract_id);
-    let token_client = soroban_sdk::contractclient!(TestToken).new(&env, &usdc_token);
+    let token_client = TestTokenClient::new(&env, &usdc_token);
 
     let user = Address::generate(&env);
     let deposit_amount = 10_000_000_i128;
 
-    mint_and_deposit(&env, &client, &usdc_token, &user, amount);
+    mint_and_deposit(&env, &client, &usdc_token, &user, deposit_amount);
 
-    // Agent should be able to update total assets
-    let new_total = 15_000_000_i128; // Simulated yield
+    // Simulate yield: mint tokens to vault first so balance check passes
+    let yield_amount = 5_000_000_i128;
+    token_client.mint(&contract_id, &yield_amount);
+
+    let new_total = deposit_amount + yield_amount;
     client.update_total_assets(&agent, &new_total);
 
     assert_eq!(client.get_total_assets(), new_total);
 }
 
 #[test]
-#[should_panic(expected = "Not authorized: caller is not the agent")]
+#[should_panic(expected = "Only agent can update total assets")]
 fn test_non_agent_cannot_update_total_assets() {
     let env = Env::default();
     env.mock_all_auths();
 
     let (contract_id, _agent, _owner, usdc_token) = setup_vault_with_token(&env);
     let client = NeuroWealthVaultClient::new(&env, &contract_id);
-    let token_client = soroban_sdk::contractclient!(TestToken).new(&env, &usdc_token);
 
     let user = Address::generate(&env);
     let deposit_amount = 10_000_000_i128;
-
-    mint_and_deposit(&env, &client, &usdc_token, &user, amount);
+    mint_and_deposit(&env, &client, &usdc_token, &user, deposit_amount);
 
     let non_agent = Address::generate(&env);
-    let new_total = 15_000_000_i128;
-
-    client.update_total_assets(&non_agent, &new_total);
+    // update_total_assets asserts agent == stored_agent before anything else
+    client.update_total_assets(&non_agent, &deposit_amount);
 }
 
 #[test]
@@ -52,27 +52,24 @@ fn test_yield_increases_user_asset_balance() {
 
     let (contract_id, agent, _owner, usdc_token) = setup_vault_with_token(&env);
     let client = NeuroWealthVaultClient::new(&env, &contract_id);
-    let token_client = soroban_sdk::contractclient!(TestToken).new(&env, &usdc_token);
+    let token_client = TestTokenClient::new(&env, &usdc_token);
 
     let user = Address::generate(&env);
     let deposit_amount = 10_000_000_i128;
-
-    mint_and_deposit(&env, &client, &usdc_token, &user, amount);
+    mint_and_deposit(&env, &client, &usdc_token, &user, deposit_amount);
 
     let balance_before_yield = client.get_balance(&user);
     assert_eq!(balance_before_yield, deposit_amount);
 
-    // Simulate yield: increase total assets by 50%
+    // Simulate 50% yield: mint tokens to vault first, then update the reported total
     let yield_amount = deposit_amount / 2;
     let new_total_assets = deposit_amount + yield_amount;
-    client.update_total_assets(&agent, &new_total_assets);
-
-    // Mint yield tokens to vault so withdrawal can succeed
     token_client.mint(&contract_id, &yield_amount);
+    client.update_total_assets(&agent, &new_total_assets);
 
     let balance_after_yield = client.get_balance(&user);
     assert!(balance_after_yield > balance_before_yield, "Balance should increase with yield");
-    assert_eq!(balance_after_yield, new_total_assets, "User should get proportional share");
+    assert_eq!(balance_after_yield, new_total_assets, "User should get full proportional share");
 }
 
 #[test]
@@ -82,37 +79,33 @@ fn test_yield_distributed_proportionally_between_users() {
 
     let (contract_id, agent, _owner, usdc_token) = setup_vault_with_token(&env);
     let client = NeuroWealthVaultClient::new(&env, &contract_id);
-    let token_client = soroban_sdk::contractclient!(TestToken).new(&env, &usdc_token);
+    let token_client = TestTokenClient::new(&env, &usdc_token);
 
     let user1 = Address::generate(&env);
     let user2 = Address::generate(&env);
     let deposit1 = 10_000_000_i128;
     let deposit2 = 5_000_000_i128;
 
-    mint_and_deposit(&env, &client, &token_client, &user1, deposit1);
-    mint_and_deposit(&env, &client, &token_client, &user2, deposit2);
+    mint_and_deposit(&env, &client, &usdc_token, &user1, deposit1);
+    mint_and_deposit(&env, &client, &usdc_token, &user2, deposit2);
 
     let total_deposits = deposit1 + deposit2;
-    let balance1_before = client.get_balance(&user1);
-    let balance2_before = client.get_balance(&user2);
 
-    // Simulate 50% yield
+    // Simulate 50% yield: mint tokens first, then report new total
     let yield_amount = total_deposits / 2;
     let new_total_assets = total_deposits + yield_amount;
-    client.update_total_assets(&agent, &new_total_assets);
-
-    // Mint yield tokens to vault
     token_client.mint(&contract_id, &yield_amount);
+    client.update_total_assets(&agent, &new_total_assets);
 
     let balance1_after = client.get_balance(&user1);
     let balance2_after = client.get_balance(&user2);
 
-    // User1 should get 2/3 of the yield (deposited 2x more)
-    // User2 should get 1/3 of the yield
+    // User1 has 2/3 of total shares → gets 2/3 of new_total_assets
+    // User2 has 1/3 of total shares → gets 1/3 of new_total_assets
     let expected_balance1 = deposit1 + (yield_amount * 2) / 3;
     let expected_balance2 = deposit2 + yield_amount / 3;
 
-    // Allow small rounding differences
+    // Allow ±1 stroop for integer rounding
     assert!(
         (balance1_after - expected_balance1).abs() <= 1,
         "User1 should get proportional yield"
@@ -122,7 +115,6 @@ fn test_yield_distributed_proportionally_between_users() {
         "User2 should get proportional yield"
     );
 
-    // Verify total is correct
     assert_eq!(
         balance1_after + balance2_after,
         new_total_assets,
@@ -137,18 +129,18 @@ fn test_yield_emits_event() {
 
     let (contract_id, agent, _owner, usdc_token) = setup_vault_with_token(&env);
     let client = NeuroWealthVaultClient::new(&env, &contract_id);
-    let token_client = soroban_sdk::contractclient!(TestToken).new(&env, &usdc_token);
+    let token_client = TestTokenClient::new(&env, &usdc_token);
 
     let user = Address::generate(&env);
     let deposit_amount = 10_000_000_i128;
+    mint_and_deposit(&env, &client, &usdc_token, &user, deposit_amount);
 
-    mint_and_deposit(&env, &client, &usdc_token, &user, amount);
-
-    let new_total = 15_000_000_i128;
+    let yield_amount = 5_000_000_i128;
+    let new_total = deposit_amount + yield_amount;
+    token_client.mint(&contract_id, &yield_amount);
     client.update_total_assets(&agent, &new_total);
 
-    let events = env.events().all();
-    let all: Vec<_> = events.into_iter().collect();
-    let assets_events = find_events_by_topic(&all, &env, symbol_short!("assets"));
+    let assets_events =
+        find_events_by_topic(env.events().all(), &env, soroban_sdk::symbol_short!("assets"));
     assert!(!assets_events.is_empty(), "Assets update should emit an event");
 }

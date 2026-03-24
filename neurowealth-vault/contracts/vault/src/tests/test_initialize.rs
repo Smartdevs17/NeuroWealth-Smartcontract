@@ -1,7 +1,7 @@
 //! Tests for vault initialization
 
 use super::test_utils::*;
-use soroban_sdk::{testutils::{Address as _, Events}, Address, Env, Vec};
+use soroban_sdk::{testutils::Address as _, Address, Env};
 
 #[test]
 fn test_initialize_happy_path() {
@@ -27,7 +27,7 @@ fn test_initialize_happy_path() {
 }
 
 #[test]
-#[should_panic(expected = "Contract already initialized")]
+#[should_panic(expected = "Already initialized")]
 fn test_double_initialize_panics() {
     let env = Env::default();
     env.mock_all_auths();
@@ -39,7 +39,7 @@ fn test_double_initialize_panics() {
     let usdc_token = Address::generate(&env);
 
     client.initialize(&agent, &usdc_token);
-    // Second initialization should panic
+    // Second call should panic with "Already initialized"
     client.initialize(&agent, &usdc_token);
 }
 
@@ -51,7 +51,7 @@ fn test_initialize_default_values() {
     let (contract_id, _agent, _owner) = setup_vault(&env);
     let client = NeuroWealthVaultClient::new(&env, &contract_id);
 
-    // Verify default values
+    // Verify actual defaults set by initialize()
     assert!(!client.is_paused(), "Vault should start unpaused");
     assert_eq!(client.get_min_deposit(), 1_000_000_i128, "Default min deposit should be 1 USDC");
     assert_eq!(
@@ -59,11 +59,12 @@ fn test_initialize_default_values() {
         10_000_000_000_i128,
         "Default max deposit should be 10K USDC"
     );
-    assert_eq!(client.get_tvl_cap(), 0, "Default TVL cap should be 0 (unlimited)");
+    // TvLCap and UserDepositCap are set to non-zero defaults by initialize()
+    assert_eq!(client.get_tvl_cap(), 100_000_000_000_i128, "Default TVL cap is 100M USDC");
     assert_eq!(
         client.get_user_deposit_cap(),
-        0,
-        "Default user deposit cap should be 0 (unlimited)"
+        10_000_000_000_i128,
+        "Default user deposit cap is 10K USDC"
     );
     assert_eq!(client.get_total_deposits(), 0, "Initial deposits should be 0");
     assert_eq!(client.get_total_assets(), 0, "Initial assets should be 0");
@@ -85,8 +86,7 @@ fn test_initialize_emits_event() {
     let events = env.events().all();
     assert!(!events.is_empty(), "Initialization should emit an event");
 
-    // Find the initialized event
-    let all: Vec<_> = events.into_iter().collect();
-    let init_events = find_events_by_topic(&all, &env, symbol_short!("init"));
+    let init_events =
+        find_events_by_topic(env.events().all(), &env, soroban_sdk::symbol_short!("init"));
     assert!(!init_events.is_empty(), "Should have initialization event");
 }
