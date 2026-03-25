@@ -50,11 +50,12 @@ jobs:
           soroban --version
 
 
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-
+       - name: Check formatting
+         working-directory: neurowealth-vault
+         run: cargo fmt --all -- --check
 
       - name: Lint with Clippy
+        working-directory: neurowealth-vault
         run: cargo clippy --all-targets --all-features -- -D warnings
 
   
