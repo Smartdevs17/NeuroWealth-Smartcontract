@@ -84,7 +84,7 @@ fn test_accept_ownership_completes_transfer() {
 }
 
 #[test]
-#[should_panic(expected = "Caller is not the pending owner")]
+#[should_panic(expected = "vault: caller is not the pending owner")]
 fn test_wrong_address_cannot_accept_ownership() {
     let env = Env::default();
     env.mock_all_auths();
@@ -121,7 +121,7 @@ fn test_cancel_ownership_transfer_clears_pending() {
 }
 
 #[test]
-#[should_panic(expected = "No pending owner to cancel")]
+#[should_panic(expected = "vault: no pending owner to cancel")]
 fn test_cancel_without_pending_panics() {
     let env = Env::default();
     env.mock_all_auths();
@@ -149,7 +149,7 @@ fn test_set_blend_pool_stores_address() {
 }
 
 #[test]
-#[should_panic(expected = "Only owner can set Blend pool")]
+#[should_panic(expected = "vault: only owner can set blend pool")]
 fn test_non_owner_cannot_set_blend_pool() {
     let env = Env::default();
     env.mock_all_auths();
@@ -161,4 +161,157 @@ fn test_non_owner_cannot_set_blend_pool() {
     let non_owner = Address::generate(&env);
     // set_blend_pool checks owner == stored_owner explicitly
     client.set_blend_pool(&non_owner, &blend_pool);
+}
+
+// ============================================================================
+// COMPREHENSIVE NEGATIVE ACCESS CONTROL TESTS
+// ============================================================================
+
+// --- Owner-only function tests (non-owner must be rejected) ---
+
+#[test]
+#[should_panic(expected = "vault: only owner can pause")]
+fn test_non_owner_cannot_pause() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, _agent, _owner, _usdc_token) = setup_vault_with_token(&env);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+
+    let non_owner = Address::generate(&env);
+    client.pause(&non_owner);
+}
+
+#[test]
+#[should_panic(expected = "vault: only owner can unpause")]
+fn test_non_owner_cannot_unpause_ac() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, _agent, owner, _usdc_token) = setup_vault_with_token(&env);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+
+    client.pause(&owner);
+    assert!(client.is_paused());
+
+    let non_owner = Address::generate(&env);
+    client.unpause(&non_owner);
+}
+
+#[test]
+#[should_panic(expected = "vault: only owner can emergency pause")]
+fn test_non_owner_cannot_emergency_pause() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    // Create vault where agent != owner so we can use a true non-owner
+    let contract_id = env.register_contract(None, NeuroWealthVault);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+    let agent = Address::generate(&env);
+    let usdc_token = Address::generate(&env);
+    client.initialize(&agent, &usdc_token);
+
+    // owner == agent by default; use a fresh address as non-owner
+    let non_owner = Address::generate(&env);
+    client.emergency_pause(&non_owner);
+}
+
+#[test]
+#[should_panic(expected = "vault: caller is not the owner")]
+fn test_non_owner_cannot_upgrade() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, _agent, _owner, _usdc_token) = setup_vault_with_token(&env);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+
+    let non_owner = Address::generate(&env);
+    let fake_wasm_hash = soroban_sdk::BytesN::from_array(&env, &[0u8; 32]);
+    client.upgrade(&non_owner, &fake_wasm_hash);
+}
+
+// --- Agent-only function tests (non-agent must be rejected) ---
+
+#[test]
+#[should_panic(expected = "vault: only agent can update total assets")]
+fn test_non_agent_cannot_update_total_assets() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, _agent, _owner, usdc_token) = setup_vault_with_token(&env);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+
+    let user = Address::generate(&env);
+    let deposit_amount = 10_000_000_i128;
+    mint_and_deposit(&env, &client, &usdc_token, &user, deposit_amount);
+
+    let non_agent = Address::generate(&env);
+    client.update_total_assets(&non_agent, &deposit_amount);
+}
+
+// --- Paused-state tests (user operations must be rejected) ---
+
+#[test]
+#[should_panic(expected = "vault: paused")]
+fn test_deposit_blocked_while_paused_ac() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, _agent, owner, usdc_token) = setup_vault_with_token(&env);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+    let token_client = TestTokenClient::new(&env, &usdc_token);
+
+    client.pause(&owner);
+
+    let user = Address::generate(&env);
+    let amount = 5_000_000_i128;
+    token_client.mint(&user, &amount);
+    client.deposit(&user, &amount);
+}
+
+#[test]
+#[should_panic(expected = "vault: paused")]
+fn test_withdraw_blocked_while_paused_ac() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, _agent, owner, usdc_token) = setup_vault_with_token(&env);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+
+    let user = Address::generate(&env);
+    let amount = 5_000_000_i128;
+    mint_and_deposit(&env, &client, &usdc_token, &user, amount);
+
+    client.pause(&owner);
+    client.withdraw(&user, &amount);
+}
+
+#[test]
+#[should_panic(expected = "vault: paused")]
+fn test_withdraw_all_blocked_while_paused() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, _agent, owner, usdc_token) = setup_vault_with_token(&env);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+
+    let user = Address::generate(&env);
+    let amount = 5_000_000_i128;
+    mint_and_deposit(&env, &client, &usdc_token, &user, amount);
+
+    client.pause(&owner);
+    client.withdraw_all(&user);
+}
+
+#[test]
+#[should_panic(expected = "vault: paused")]
+fn test_rebalance_blocked_while_paused_ac() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, _agent, owner, _usdc_token) = setup_vault_with_token(&env);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+
+    client.pause(&owner);
+    client.rebalance(&soroban_sdk::symbol_short!("none"), &500_i128);
 }

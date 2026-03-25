@@ -49,7 +49,7 @@ fn test_set_deposit_limits() {
 }
 
 #[test]
-#[should_panic(expected = "Minimum deposit must be at least 1 USDC")]
+#[should_panic(expected = "vault: minimum deposit must be at least 1 USDC")]
 fn test_set_deposit_limits_min_too_low() {
     let env = Env::default();
     env.mock_all_auths();
@@ -64,7 +64,7 @@ fn test_set_deposit_limits_min_too_low() {
 }
 
 #[test]
-#[should_panic(expected = "Maximum deposit must be greater than or equal to minimum")]
+#[should_panic(expected = "vault: maximum deposit must be >= minimum")]
 fn test_set_deposit_limits_max_less_than_min() {
     let env = Env::default();
     env.mock_all_auths();
@@ -79,7 +79,7 @@ fn test_set_deposit_limits_max_less_than_min() {
 }
 
 #[test]
-#[should_panic(expected = "Exceeds TVL cap")]
+#[should_panic(expected = "vault: exceeds TVL cap")]
 fn test_deposit_enforces_tvl_cap() {
     let env = Env::default();
     env.mock_all_auths();
@@ -100,7 +100,7 @@ fn test_deposit_enforces_tvl_cap() {
 }
 
 #[test]
-#[should_panic(expected = "Exceeds user deposit cap")]
+#[should_panic(expected = "vault: exceeds user deposit cap")]
 fn test_deposit_enforces_user_cap() {
     let env = Env::default();
     env.mock_all_auths();

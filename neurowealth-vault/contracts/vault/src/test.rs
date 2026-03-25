@@ -138,7 +138,7 @@ fn test_set_deposit_limits_success() {
 }
 
 #[test]
-#[should_panic(expected = "Minimum deposit must be at least 1 USDC")]
+#[should_panic(expected = "vault: minimum deposit must be at least 1 USDC")]
 fn test_set_deposit_limits_min_too_low() {
     let env = Env::default();
     env.mock_all_auths();
@@ -153,7 +153,7 @@ fn test_set_deposit_limits_min_too_low() {
 }
 
 #[test]
-#[should_panic(expected = "Maximum deposit must be greater than or equal to minimum")]
+#[should_panic(expected = "vault: maximum deposit must be >= minimum")]
 fn test_set_deposit_limits_max_less_than_min() {
     let env = Env::default();
     env.mock_all_auths();
@@ -168,7 +168,7 @@ fn test_set_deposit_limits_max_less_than_min() {
 }
 
 #[test]
-#[should_panic(expected = "Below minimum deposit")]
+#[should_panic(expected = "vault: below minimum deposit")]
 fn test_deposit_below_minimum() {
     let env = Env::default();
     env.mock_all_auths();
@@ -189,7 +189,7 @@ fn test_deposit_below_minimum() {
 }
 
 #[test]
-#[should_panic(expected = "Exceeds maximum deposit")]
+#[should_panic(expected = "vault: exceeds maximum deposit")]
 fn test_deposit_above_maximum() {
     let env = Env::default();
     env.mock_all_auths();
@@ -252,7 +252,7 @@ fn test_deposit_at_maximum_succeeds() {
 }
 
 #[test]
-#[should_panic(expected = "Below minimum deposit")]
+#[should_panic(expected = "vault: below minimum deposit")]
 fn test_deposit_one_stroop_below_minimum() {
     let env = Env::default();
     env.mock_all_auths();
@@ -269,7 +269,7 @@ fn test_deposit_one_stroop_below_minimum() {
 }
 
 #[test]
-#[should_panic(expected = "Exceeds maximum deposit")]
+#[should_panic(expected = "vault: exceeds maximum deposit")]
 fn test_deposit_one_stroop_above_maximum() {
     let env = Env::default();
     env.mock_all_auths();
@@ -690,7 +690,7 @@ fn test_owner_can_upgrade() {
 }
 
 #[test]
-#[should_panic(expected = "Not authorized: caller is not the owner")]
+#[should_panic(expected = "vault: caller is not the owner")]
 fn test_non_owner_cannot_upgrade() {
     let env = Env::default();
     env.mock_all_auths();

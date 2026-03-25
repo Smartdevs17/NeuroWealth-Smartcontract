@@ -27,7 +27,7 @@ fn test_initialize_happy_path() {
 }
 
 #[test]
-#[should_panic(expected = "Already initialized")]
+#[should_panic(expected = "vault: already initialized")]
 fn test_double_initialize_panics() {
     let env = Env::default();
     env.mock_all_auths();
@@ -39,7 +39,7 @@ fn test_double_initialize_panics() {
     let usdc_token = Address::generate(&env);
 
     client.initialize(&agent, &usdc_token);
-    // Second call should panic with "Already initialized"
+    // Second call should panic with "vault: already initialized"
     client.initialize(&agent, &usdc_token);
 }
 

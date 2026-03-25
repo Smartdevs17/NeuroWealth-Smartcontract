@@ -70,7 +70,7 @@ fn test_withdraw_more_than_balance_panics() {
 }
 
 #[test]
-#[should_panic(expected = "Amount must be positive")]
+#[should_panic(expected = "vault: amount must be positive")]
 fn test_withdraw_zero_panics() {
     let env = Env::default();
     env.mock_all_auths();
@@ -87,7 +87,7 @@ fn test_withdraw_zero_panics() {
 }
 
 #[test]
-#[should_panic(expected = "Vault is paused")]
+#[should_panic(expected = "vault: paused")]
 fn test_withdraw_while_paused_panics() {
     let env = Env::default();
     env.mock_all_auths();
