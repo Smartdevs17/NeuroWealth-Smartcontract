@@ -24,6 +24,10 @@ jobs:
         with:
           workspaces: neurowealth-vault
 
+      - name: Check formatting
+        working-directory: neurowealth-vault
+        run: cargo fmt --all -- --check
+
       - name: Install wasm-opt
         run: cargo install wasm-opt --locked
 
@@ -40,3 +44,39 @@ jobs:
       - name: Run tests
         working-directory: neurowealth-vault
         run: cargo test
+
+      - name: Verify comprehensive test count
+        working-directory: neurowealth-vault
+        run: |
+          # Capture the full test output
+          TEST_OUTPUT=$(cargo test 2>&1)
+          echo "$TEST_OUTPUT"
+
+          # Count passing tests
+          PASS_COUNT=$(echo "$TEST_OUTPUT" | grep -c "^test .* ok$" || true)
+          echo "Tests passed: $PASS_COUNT"
+
+          # Fail if the test suite has not grown beyond the 19 inline tests
+          MIN_TESTS=40
+          if [ "$PASS_COUNT" -lt "$MIN_TESTS" ]; then
+            echo "ERROR: Only $PASS_COUNT tests passed; expected at least $MIN_TESTS."
+            echo "Make sure all declared test modules contain real test functions."
+            exit 1
+          fi
+          echo "OK: $PASS_COUNT tests passed (minimum $MIN_TESTS required)."
+
+      - name: Verify no declared test module is empty
+        working-directory: neurowealth-vault
+        run: |
+          FAILED=0
+          for f in contracts/vault/src/tests/test_*.rs; do
+            # Count #[test] annotations in the file
+            COUNT=$(grep -c "^#\[test\]" "$f" || true)
+            if [ "$COUNT" -eq 0 ]; then
+              echo "ERROR: $f is declared but has no #[test] functions."
+              FAILED=1
+            else
+              echo "OK: $f has $COUNT test(s)."
+            fi
+          done
+          exit $FAILED
