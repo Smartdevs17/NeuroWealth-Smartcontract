@@ -28,7 +28,7 @@ fn test_agent_can_update_total_assets() {
 }
 
 #[test]
-#[should_panic(expected = "Only agent can update total assets")]
+#[should_panic(expected = "vault: only agent can update total assets")]
 fn test_non_agent_cannot_update_total_assets() {
     let env = Env::default();
     env.mock_all_auths();

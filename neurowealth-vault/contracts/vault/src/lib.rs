@@ -507,7 +507,7 @@ impl NeuroWealthVault {
     ///   the deployer key to prevent re-initialization
     pub fn initialize(env: Env, agent: Address, usdc_token: Address) {
         if env.storage().instance().has(&DataKey::Agent) {
-            panic!("Already initialized");
+            panic!("vault: already initialized");
         }
 
         let tvl_cap = 100_000_000_000_i128; // 100M USDC default
@@ -609,7 +609,7 @@ impl NeuroWealthVault {
 
         // Mint shares based on current share price and update total assets
         let shares_to_mint = Self::convert_to_shares_internal(&env, amount);
-        assert!(shares_to_mint > 0, "Shares to mint must be positive");
+        assert!(shares_to_mint > 0, "vault: shares to mint must be positive");
 
         // Update user shares
         let current_shares: i128 = env
@@ -735,20 +735,20 @@ impl NeuroWealthVault {
             .persistent()
             .get(&DataKey::Shares(user.clone()))
             .unwrap_or(0);
-        assert!(user_shares > 0, "Insufficient shares");
+        assert!(user_shares > 0, "vault: insufficient shares");
 
         let total_shares = Self::get_total_shares_internal(&env);
         let total_assets = Self::get_total_assets_internal(&env);
         assert!(
             total_shares > 0 && total_assets > 0,
-            "No assets to withdraw"
+            "vault: no assets to withdraw"
         );
 
         let shares_to_burn = Self::convert_to_shares_internal(&env, amount);
-        assert!(shares_to_burn > 0, "Shares to burn must be positive");
+        assert!(shares_to_burn > 0, "vault: shares to burn must be positive");
         assert!(
             user_shares >= shares_to_burn,
-            "Insufficient shares for requested amount"
+            "vault: insufficient shares for requested amount"
         );
 
         // Calculate actual assets to return based on burned shares.
@@ -895,18 +895,18 @@ impl NeuroWealthVault {
             .persistent()
             .get(&DataKey::Shares(user.clone()))
             .unwrap_or(0);
-        assert!(user_shares > 0, "No shares to withdraw");
+        assert!(user_shares > 0, "vault: no shares to withdraw");
 
         let total_shares = Self::get_total_shares_internal(&env);
         let total_assets = Self::get_total_assets_internal(&env);
         assert!(
             total_shares > 0 && total_assets > 0,
-            "No assets to withdraw"
+            "vault: no assets to withdraw"
         );
 
         // Calculate assets to return based on ALL user shares
         let usdc_to_return = Self::convert_to_assets_internal(&env, user_shares);
-        assert!(usdc_to_return > 0, "No assets to return");
+        assert!(usdc_to_return > 0, "vault: no assets to return");
 
         // Update user shares to zero
         env.storage()
@@ -1025,7 +1025,7 @@ impl NeuroWealthVault {
         if protocol == symbol_short!("blend") {
             // Check if Blend pool is configured
             if !env.storage().instance().has(&DataKey::BlendPool) {
-                panic!("Blend pool not configured");
+                panic!("vault: blend pool not configured");
             }
 
             // Get available USDC balance in vault
@@ -1103,7 +1103,7 @@ impl NeuroWealthVault {
     pub fn pause(env: Env, owner: Address) {
         owner.require_auth();
         let stored_owner: Address = env.storage().instance().get(&DataKey::Owner).unwrap();
-        assert_eq!(owner, stored_owner, "Only owner can pause");
+        assert_eq!(owner, stored_owner, "vault: only owner can pause");
 
         env.storage().instance().set(&DataKey::Paused, &true);
 
@@ -1134,14 +1134,14 @@ impl NeuroWealthVault {
     pub fn unpause(env: Env, owner: Address) {
         owner.require_auth();
         let stored_owner: Address = env.storage().instance().get(&DataKey::Owner).unwrap();
-        assert_eq!(owner, stored_owner, "Only owner can unpause");
+        assert_eq!(owner, stored_owner, "vault: only owner can unpause");
 
         let paused: bool = env
             .storage()
             .instance()
             .get(&DataKey::Paused)
             .unwrap_or(false);
-        assert!(paused, "Vault is not paused");
+        assert!(paused, "vault: not paused");
 
         env.storage().instance().set(&DataKey::Paused, &false);
 
@@ -1174,7 +1174,7 @@ impl NeuroWealthVault {
     pub fn emergency_pause(env: Env, owner: Address) {
         owner.require_auth();
         let stored_owner: Address = env.storage().instance().get(&DataKey::Owner).unwrap();
-        assert_eq!(owner, stored_owner, "Only owner can emergency pause");
+        assert_eq!(owner, stored_owner, "vault: only owner can emergency pause");
 
         env.storage().instance().set(&DataKey::Paused, &true);
 
@@ -1355,11 +1355,11 @@ impl NeuroWealthVault {
         Self::require_is_owner(&env);
 
         // Validate limits
-        assert!(min >= 1_000_000, "Minimum deposit must be at least 1 USDC");
         assert!(
-            max >= min,
-            "Maximum deposit must be greater than or equal to minimum"
+            min >= 1_000_000,
+            "vault: minimum deposit must be at least 1 USDC"
         );
+        assert!(max >= min, "vault: maximum deposit must be >= minimum");
 
         let old_min = env
             .storage()
@@ -1500,7 +1500,7 @@ impl NeuroWealthVault {
     pub fn set_blend_pool(env: Env, owner: Address, pool_address: Address) {
         owner.require_auth();
         let stored_owner: Address = env.storage().instance().get(&DataKey::Owner).unwrap();
-        assert_eq!(owner, stored_owner, "Only owner can set Blend pool");
+        assert_eq!(owner, stored_owner, "vault: only owner can set blend pool");
 
         env.storage()
             .instance()
@@ -1594,9 +1594,9 @@ impl NeuroWealthVault {
             .storage()
             .instance()
             .get(&DataKey::PendingOwner)
-            .expect("No pending owner");
+            .expect("vault: no pending owner");
 
-        assert_eq!(new_owner, pending, "Caller is not the pending owner");
+        assert_eq!(new_owner, pending, "vault: caller is not the pending owner");
 
         let old_owner: Address = env.storage().instance().get(&DataKey::Owner).unwrap();
 
@@ -1641,7 +1641,7 @@ impl NeuroWealthVault {
             .storage()
             .instance()
             .get(&DataKey::PendingOwner)
-            .expect("No pending owner to cancel");
+            .expect("vault: no pending owner to cancel");
 
         let owner: Address = env.storage().instance().get(&DataKey::Owner).unwrap();
 
@@ -1699,13 +1699,16 @@ impl NeuroWealthVault {
     pub fn update_total_assets(env: Env, agent: Address, new_total: i128) {
         // Agent-controlled yield update
         let stored_agent: Address = env.storage().instance().get(&DataKey::Agent).unwrap();
-        assert_eq!(agent, stored_agent, "Only agent can update total assets");
+        assert_eq!(
+            agent, stored_agent,
+            "vault: only agent can update total assets"
+        );
         agent.require_auth();
 
         let old_total = Self::get_total_assets_internal(&env);
         assert!(
             new_total >= old_total,
-            "Total assets cannot decrease via update_total_assets"
+            "vault: total assets cannot decrease"
         );
 
         // CRITICAL SECURITY CHECK: Verify vault actually holds sufficient USDC
@@ -1716,7 +1719,7 @@ impl NeuroWealthVault {
 
         assert!(
             vault_balance >= new_total,
-            "Vault USDC balance insufficient for reported total assets"
+            "vault: insufficient balance for reported assets"
         );
 
         env.storage()
@@ -1768,10 +1771,7 @@ impl NeuroWealthVault {
         owner.require_auth();
 
         let stored_owner: Address = env.storage().instance().get(&DataKey::Owner).unwrap();
-        assert!(
-            owner == stored_owner,
-            "Not authorized: caller is not the owner"
-        );
+        assert!(owner == stored_owner, "vault: caller is not the owner");
 
         let old_version: u32 = env.storage().instance().get(&DataKey::Version).unwrap_or(1);
 
@@ -2003,7 +2003,7 @@ impl NeuroWealthVault {
             .instance()
             .get(&DataKey::Paused)
             .unwrap_or(false);
-        assert!(!paused, "Vault is paused");
+        assert!(!paused, "vault: paused");
     }
 
     /// Validates that the caller is the contract owner.
@@ -2032,7 +2032,7 @@ impl NeuroWealthVault {
     /// - If amount is <= 0
     #[inline]
     fn require_positive_amount(amount: i128) {
-        assert!(amount > 0, "Amount must be positive");
+        assert!(amount > 0, "vault: amount must be positive");
     }
 
     /// Validates that a deposit meets the minimum requirement.
@@ -2048,7 +2048,7 @@ impl NeuroWealthVault {
             .instance()
             .get(&DataKey::MinDeposit)
             .unwrap_or(1_000_000);
-        assert!(amount >= min_deposit, "Below minimum deposit");
+        assert!(amount >= min_deposit, "vault: below minimum deposit");
     }
 
     /// Validates that a deposit is within the maximum limit.
@@ -2064,7 +2064,7 @@ impl NeuroWealthVault {
             .instance()
             .get(&DataKey::MaxDeposit)
             .unwrap_or(10_000_000_000);
-        assert!(amount <= max_deposit, "Exceeds maximum deposit");
+        assert!(amount <= max_deposit, "vault: exceeds maximum deposit");
     }
 
     /// Validates that a deposit is within the user's cap.
@@ -2084,7 +2084,10 @@ impl NeuroWealthVault {
                 .persistent()
                 .get(&DataKey::Balance(user.clone()))
                 .unwrap_or(0);
-            assert!(current_balance + amount <= cap, "Exceeds user deposit cap");
+            assert!(
+                current_balance + amount <= cap,
+                "vault: exceeds user deposit cap"
+            );
         }
     }
 
@@ -2101,7 +2104,7 @@ impl NeuroWealthVault {
                 .instance()
                 .get(&DataKey::TotalDeposits)
                 .unwrap_or(0);
-            assert!(total + amount <= cap, "Exceeds TVL cap");
+            assert!(total + amount <= cap, "vault: exceeds TVL cap");
         }
     }
 
@@ -2191,7 +2194,7 @@ impl NeuroWealthVault {
             .storage()
             .instance()
             .get(&DataKey::BlendPool)
-            .expect("Blend pool not configured");
+            .expect("vault: blend pool not configured");
 
         let usdc_token: Address = env.storage().instance().get(&DataKey::UsdcToken).unwrap();
         let vault_address = env.current_contract_address();
@@ -2234,7 +2237,7 @@ impl NeuroWealthVault {
             .storage()
             .instance()
             .get(&DataKey::BlendPool)
-            .expect("Blend pool not configured");
+            .expect("vault: blend pool not configured");
 
         let usdc_token: Address = env.storage().instance().get(&DataKey::UsdcToken).unwrap();
         let vault_address = env.current_contract_address();
@@ -2512,7 +2515,7 @@ mod tests {
 
     /// Test that withdraw() rejects when vault is paused
     #[test]
-    #[should_panic(expected = "Vault is paused")]
+    #[should_panic(expected = "vault: paused")]
     fn test_withdraw_fails_when_paused() {
         let env = Env::default();
         env.mock_all_auths();
@@ -2528,7 +2531,7 @@ mod tests {
 
     /// Test that withdraw() rejects zero amounts
     #[test]
-    #[should_panic(expected = "Amount must be positive")]
+    #[should_panic(expected = "vault: amount must be positive")]
     fn test_withdraw_rejects_zero_amount() {
         let env = Env::default();
         env.mock_all_auths();
@@ -2543,7 +2546,7 @@ mod tests {
 
     /// Test that withdraw() rejects when user has insufficient balance
     #[test]
-    #[should_panic(expected = "Insufficient shares")]
+    #[should_panic(expected = "vault: insufficient shares")]
     fn test_withdraw_fails_insufficient_balance() {
         let env = Env::default();
         env.mock_all_auths();
@@ -2590,7 +2593,7 @@ mod tests {
 
     /// Test that deposit() rejects when vault is paused
     #[test]
-    #[should_panic(expected = "Vault is paused")]
+    #[should_panic(expected = "vault: paused")]
     fn test_deposit_fails_when_paused() {
         let env = Env::default();
         env.mock_all_auths();
@@ -2606,7 +2609,7 @@ mod tests {
 
     /// Test that deposit() rejects zero amounts
     #[test]
-    #[should_panic(expected = "Amount must be positive")]
+    #[should_panic(expected = "vault: amount must be positive")]
     fn test_deposit_rejects_zero_amount() {
         let env = Env::default();
         env.mock_all_auths();
@@ -2622,7 +2625,7 @@ mod tests {
     /// Test that deposit() enforces minimum deposit
     /// Test that deposit() enforces minimum deposit
     #[test]
-    #[should_panic(expected = "Below minimum deposit")]
+    #[should_panic(expected = "vault: below minimum deposit")]
     fn test_deposit_enforces_minimum() {
         let env = Env::default();
         env.mock_all_auths();

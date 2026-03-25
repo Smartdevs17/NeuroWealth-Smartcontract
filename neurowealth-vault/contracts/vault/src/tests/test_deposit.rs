@@ -39,7 +39,7 @@ fn test_deposit_maximum_succeeds() {
 }
 
 #[test]
-#[should_panic(expected = "Below minimum deposit")]
+#[should_panic(expected = "vault: below minimum deposit")]
 fn test_deposit_below_minimum_panics() {
     let env = Env::default();
     env.mock_all_auths();
@@ -56,7 +56,7 @@ fn test_deposit_below_minimum_panics() {
 }
 
 #[test]
-#[should_panic(expected = "Exceeds maximum deposit")]
+#[should_panic(expected = "vault: exceeds maximum deposit")]
 fn test_deposit_above_maximum_panics() {
     let env = Env::default();
     env.mock_all_auths();
@@ -78,7 +78,7 @@ fn test_deposit_above_maximum_panics() {
 }
 
 #[test]
-#[should_panic(expected = "Vault is paused")]
+#[should_panic(expected = "vault: paused")]
 fn test_deposit_while_paused_panics() {
     let env = Env::default();
     env.mock_all_auths();

@@ -96,7 +96,7 @@ fn test_rebalance_apy_parameter_accepted() {
 }
 
 #[test]
-#[should_panic(expected = "Vault is paused")]
+#[should_panic(expected = "vault: paused")]
 fn test_rebalance_while_paused_panics() {
     let env = Env::default();
     env.mock_all_auths();
@@ -112,7 +112,7 @@ fn test_rebalance_while_paused_panics() {
 }
 
 #[test]
-#[should_panic(expected = "Blend pool not configured")]
+#[should_panic(expected = "vault: blend pool not configured")]
 fn test_blend_rebalance_without_pool_panics() {
     let env = Env::default();
     env.mock_all_auths();
