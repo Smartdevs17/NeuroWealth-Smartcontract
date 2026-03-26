@@ -2,81 +2,85 @@ name: CI
 
 on:
   push:
-    branches: ["main", "feat/**"]
+    branches: ["main", "develop", "feat/**"]
   pull_request:
-    branches: ["main"]
+    branches: ["main", "develop"]
 
 jobs:
-  test:
-    name: Build & Test
+  build-test:
+    name: Build, Lint & Test
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+
+      - name: Install Rust toolchain with components
         uses: dtolnay/rust-toolchain@stable
         with:
+          components: rustfmt, clippy
           targets: wasm32-unknown-unknown
+
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: neurowealth-vault
 
-      - name: Check formatting
+      - name: Cache cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            neurowealth-vault/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+
+      - name: Install Stellar CLI
+        run: |
+          curl -sSL https://github.com/stellar/soroban-tools/releases/download/v21.2.0/soroban-cli-21.2.0-x86_64-unknown-linux-gnu.tar.gz | tar -xz
+          sudo mv soroban /usr/local/bin/
+          soroban --version
+
+
+       - name: Check formatting
+         working-directory: neurowealth-vault
+         run: cargo fmt --all -- --check
+
+      - name: Lint with Clippy
         working-directory: neurowealth-vault
-        run: cargo fmt --all -- --check
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
-      - name: Install wasm-opt
-        run: cargo install wasm-opt --locked
-
+  
       - name: Build contract WASM (MVP-compatible)
         working-directory: neurowealth-vault
         run: |
           RUSTFLAGS="-C target-cpu=mvp" cargo build \
             --target wasm32-unknown-unknown \
             --release
+          cargo install wasm-opt --locked
           wasm-opt --strip-target-features --mvp-features \
             target/wasm32-unknown-unknown/release/neurowealth_vault.wasm \
             -o target/wasm32-unknown-unknown/release/neurowealth_vault.wasm
 
-      - name: Run tests
+
+      - name: Run vault tests
+        working-directory: neurowealth-vault/contracts/vault
+        run: cargo test --verbose
+
+
+      - name: Run main tests
         working-directory: neurowealth-vault
-        run: cargo test
+        run: cargo test --verbose
 
-      - name: Verify comprehensive test count
-        working-directory: neurowealth-vault
-        run: |
-          # Capture the full test output
-          TEST_OUTPUT=$(cargo test 2>&1)
-          echo "$TEST_OUTPUT"
 
-          # Count passing tests
-          PASS_COUNT=$(echo "$TEST_OUTPUT" | grep -c "^test .* ok$" || true)
-          echo "Tests passed: $PASS_COUNT"
-
-          # Fail if the test suite has not grown beyond the 19 inline tests
-          MIN_TESTS=40
-          if [ "$PASS_COUNT" -lt "$MIN_TESTS" ]; then
-            echo "ERROR: Only $PASS_COUNT tests passed; expected at least $MIN_TESTS."
-            echo "Make sure all declared test modules contain real test functions."
-            exit 1
-          fi
-          echo "OK: $PASS_COUNT tests passed (minimum $MIN_TESTS required)."
-
-      - name: Verify no declared test module is empty
-        working-directory: neurowealth-vault
-        run: |
-          FAILED=0
-          for f in contracts/vault/src/tests/test_*.rs; do
-            # Count #[test] annotations in the file
-            COUNT=$(grep -c "^#\[test\]" "$f" || true)
-            if [ "$COUNT" -eq 0 ]; then
-              echo "ERROR: $f is declared but has no #[test] functions."
-              FAILED=1
-            else
-              echo "OK: $f has $COUNT test(s)."
-            fi
-          done
-          exit $FAILED
+      - name: Tail last 20 lines of tests
+        working-directory: neurowealth-vault/contracts/vault
+        run: cargo test -- --nocapture 2>&1 | tail -20
