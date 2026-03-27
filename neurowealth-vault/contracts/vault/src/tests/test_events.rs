@@ -1,33 +1,11 @@
 //! Tests verifying that each contract operation emits the expected event with correct payload values
 
 use super::utils::*;
-use soroban_sdk::{symbol_short, testutils::Address as _, Address, Env, TryFromVal, Val, Vec};
-
-fn get_val_at_index(env: &Env, vec: &Vec<Val>, index: u32) -> Val {
-    match vec.get(index) {
-        Some(val) => val,
-        None => Val::from_void().into(),
-    }
-}
-
-fn extract_i128(env: &Env, vec: &Vec<Val>, index: u32) -> i128 {
-    let val = get_val_at_index(env, vec, index);
-    i128::try_from_val(env, &val).unwrap_or(0)
-}
-
-fn extract_address(env: &Env, vec: &Vec<Val>, index: u32) -> Address {
-    let val = get_val_at_index(env, vec, index);
-    Address::try_from_val(env, &val).unwrap()
-}
-
-fn extract_symbol(env: &Env, vec: &Vec<Val>, index: u32) -> soroban_sdk::Symbol {
-    let val = get_val_at_index(env, vec, index);
-    soroban_sdk::Symbol::try_from_val(env, &val).unwrap_or(symbol_short!(""))
-}
-
-fn parse_event_data_as_vec(env: &Env, data: Val) -> Vec<Val> {
-    Vec::<Val>::try_from_val(env, &data).unwrap_or_else(|_| Vec::new(env))
-}
+use crate::{
+    AgentUpdatedEvent, AssetsUpdatedEvent, DepositEvent, EmergencyPausedEvent, LimitsUpdatedEvent,
+    RebalanceEvent, VaultInitializedEvent, VaultPausedEvent, VaultUnpausedEvent, WithdrawEvent,
+};
+use soroban_sdk::{symbol_short, testutils::Address as _, Address, Env, TryFromVal};
 
 #[test]
 fn test_initialize_emits_init_event_with_correct_payload() {
@@ -50,25 +28,19 @@ fn test_initialize_emits_init_event_with_correct_payload() {
     );
 
     let (_, _, data) = &init_events[0];
-    let fields = parse_event_data_as_vec(&env, data.clone());
+    let event =
+        VaultInitializedEvent::try_from_val(&env, data).expect("Should be a VaultInitializedEvent");
+
     assert_eq!(
-        fields.len(),
-        3,
-        "VaultInitializedEvent should have 3 fields"
-    );
-    assert_eq!(
-        extract_address(&env, &fields, 0),
-        agent,
+        event.agent, agent,
         "Event agent should match initialized agent"
     );
     assert_eq!(
-        extract_address(&env, &fields, 1),
-        usdc_token,
+        event.usdc_token, usdc_token,
         "Event usdc_token should match initialized token"
     );
     assert_eq!(
-        extract_i128(&env, &fields, 2),
-        expected_tvl_cap,
+        event.tvl_cap, expected_tvl_cap,
         "Event tvl_cap should match default cap"
     );
 }
@@ -89,21 +61,15 @@ fn test_deposit_emits_deposit_event_with_correct_payload() {
     assert!(!deposit_events.is_empty(), "Deposit should emit an event");
 
     let (_, _, data) = &deposit_events[0];
-    let fields = parse_event_data_as_vec(&env, data.clone());
-    assert_eq!(fields.len(), 3, "DepositEvent should have 3 fields");
+    let event = DepositEvent::try_from_val(&env, data).expect("Should be a DepositEvent");
+
+    assert_eq!(event.user, user, "Event user should match depositor");
     assert_eq!(
-        extract_address(&env, &fields, 0),
-        user,
-        "Event user should match depositor"
-    );
-    assert_eq!(
-        extract_i128(&env, &fields, 1),
-        deposit_amount,
+        event.amount, deposit_amount,
         "Event amount should match deposited amount"
     );
     assert_eq!(
-        extract_i128(&env, &fields, 2),
-        deposit_amount,
+        event.shares, deposit_amount,
         "First deposit should mint 1:1 shares"
     );
 }
@@ -128,16 +94,16 @@ fn test_deposit_multiple_users_events_correct() {
     assert_eq!(deposit_events.len(), 2, "Should emit two deposit events");
 
     let (_, _, data1) = &deposit_events[0];
-    let fields1 = parse_event_data_as_vec(&env, data1.clone());
-    assert_eq!(extract_address(&env, &fields1, 0), user1);
-    assert_eq!(extract_i128(&env, &fields1, 1), amount1);
-    assert_eq!(extract_i128(&env, &fields1, 2), amount1);
+    let event1 = DepositEvent::try_from_val(&env, data1).expect("Should be a DepositEvent");
+    assert_eq!(event1.user, user1);
+    assert_eq!(event1.amount, amount1);
+    assert_eq!(event1.shares, amount1);
 
     let (_, _, data2) = &deposit_events[1];
-    let fields2 = parse_event_data_as_vec(&env, data2.clone());
-    assert_eq!(extract_address(&env, &fields2, 0), user2);
-    assert_eq!(extract_i128(&env, &fields2, 1), amount2);
-    assert_eq!(extract_i128(&env, &fields2, 2), amount2);
+    let event2 = DepositEvent::try_from_val(&env, data2).expect("Should be a DepositEvent");
+    assert_eq!(event2.user, user2);
+    assert_eq!(event2.amount, amount2);
+    assert_eq!(event2.shares, amount2);
 }
 
 #[test]
@@ -159,21 +125,15 @@ fn test_withdraw_emits_withdraw_event_with_correct_payload() {
     assert!(!withdraw_events.is_empty(), "Withdraw should emit an event");
 
     let (_, _, data) = &withdraw_events[0];
-    let fields = parse_event_data_as_vec(&env, data.clone());
-    assert_eq!(fields.len(), 3, "WithdrawEvent should have 3 fields");
+    let event = WithdrawEvent::try_from_val(&env, data).expect("Should be a WithdrawEvent");
+
+    assert_eq!(event.user, user, "Event user should match withdrawer");
     assert_eq!(
-        extract_address(&env, &fields, 0),
-        user,
-        "Event user should match withdrawer"
-    );
-    assert_eq!(
-        extract_i128(&env, &fields, 1),
-        withdraw_amount,
+        event.amount, withdraw_amount,
         "Event amount should match withdrawn amount"
     );
     assert_eq!(
-        extract_i128(&env, &fields, 2),
-        withdraw_amount,
+        event.shares, withdraw_amount,
         "At 1:1 price, shares burned should equal amount"
     );
 }
@@ -195,24 +155,16 @@ fn test_withdraw_all_emits_withdraw_event() {
     assert_eq!(withdrawn, deposit_amount, "Should withdraw full balance");
 
     let withdraw_events = find_events_by_topic(env.events().all(), &env, symbol_short!("withdraw"));
-    let last_event = withdraw_events.last().unwrap();
-    let (_, _, data) = last_event;
-    let fields = parse_event_data_as_vec(&env, data.clone());
+    let last_event_data = &withdraw_events.last().unwrap().2;
+    let event =
+        WithdrawEvent::try_from_val(&env, last_event_data).expect("Should be a WithdrawEvent");
+
+    assert_eq!(event.user, user, "Event user should match withdrawer");
     assert_eq!(
-        extract_address(&env, &fields, 0),
-        user,
-        "Event user should match withdrawer"
-    );
-    assert_eq!(
-        extract_i128(&env, &fields, 1),
-        deposit_amount,
+        event.amount, deposit_amount,
         "Event amount should match full balance"
     );
-    assert_eq!(
-        extract_i128(&env, &fields, 2),
-        deposit_amount,
-        "Should burn all shares"
-    );
+    assert_eq!(event.shares, deposit_amount, "Should burn all shares");
 }
 
 #[test]
@@ -229,13 +181,8 @@ fn test_pause_emits_paused_event_with_correct_payload() {
     assert!(!pause_events.is_empty(), "Pause should emit an event");
 
     let (_, _, data) = &pause_events[0];
-    let fields = parse_event_data_as_vec(&env, data.clone());
-    assert_eq!(fields.len(), 1, "VaultPausedEvent should have 1 field");
-    assert_eq!(
-        extract_address(&env, &fields, 0),
-        owner,
-        "Event owner should match pauser"
-    );
+    let event = VaultPausedEvent::try_from_val(&env, data).expect("Should be a VaultPausedEvent");
+    assert_eq!(event.owner, owner, "Event owner should match pauser");
 }
 
 #[test]
@@ -253,13 +200,9 @@ fn test_unpause_emits_unpaused_event_with_correct_payload() {
     assert!(!unpause_events.is_empty(), "Unpause should emit an event");
 
     let (_, _, data) = &unpause_events[0];
-    let fields = parse_event_data_as_vec(&env, data.clone());
-    assert_eq!(fields.len(), 1, "VaultUnpausedEvent should have 1 field");
-    assert_eq!(
-        extract_address(&env, &fields, 0),
-        owner,
-        "Event owner should match unpauser"
-    );
+    let event =
+        VaultUnpausedEvent::try_from_val(&env, data).expect("Should be a VaultUnpausedEvent");
+    assert_eq!(event.owner, owner, "Event owner should match unpauser");
 }
 
 #[test]
@@ -279,11 +222,10 @@ fn test_emergency_pause_emits_emergency_event_with_correct_payload() {
     );
 
     let (_, _, data) = &emergency_events[0];
-    let fields = parse_event_data_as_vec(&env, data.clone());
-    assert_eq!(fields.len(), 1, "EmergencyPausedEvent should have 1 field");
+    let event =
+        EmergencyPausedEvent::try_from_val(&env, data).expect("Should be an EmergencyPausedEvent");
     assert_eq!(
-        extract_address(&env, &fields, 0),
-        agent,
+        event.owner, agent,
         "Event owner should match emergency pauser"
     );
 }
@@ -307,16 +249,14 @@ fn test_set_deposit_limits_emits_limits_event_with_correct_payload() {
     );
 
     let (_, _, data) = &limits_events[0];
-    let fields = parse_event_data_as_vec(&env, data.clone());
-    assert_eq!(fields.len(), 4, "LimitsUpdatedEvent should have 4 fields");
+    let event =
+        LimitsUpdatedEvent::try_from_val(&env, data).expect("Should be a LimitsUpdatedEvent");
     assert_eq!(
-        extract_i128(&env, &fields, 2),
-        new_min,
+        event.new_min, new_min,
         "Event new_min should match set value"
     );
     assert_eq!(
-        extract_i128(&env, &fields, 3),
-        new_max,
+        event.new_max, new_max,
         "Event new_max should match set value"
     );
 }
@@ -339,16 +279,14 @@ fn test_update_agent_emits_agent_event_with_correct_payload() {
     );
 
     let (_, _, data) = &agent_events[0];
-    let fields = parse_event_data_as_vec(&env, data.clone());
-    assert_eq!(fields.len(), 2, "AgentUpdatedEvent should have 2 fields");
+    let event =
+        AgentUpdatedEvent::try_from_val(&env, data).expect("Should be an AgentUpdatedEvent");
     assert_eq!(
-        extract_address(&env, &fields, 0),
-        old_agent,
+        event.old_agent, old_agent,
         "Event old_agent should match previous agent"
     );
     assert_eq!(
-        extract_address(&env, &fields, 1),
-        new_agent,
+        event.new_agent, new_agent,
         "Event new_agent should match new agent"
     );
 }
@@ -379,16 +317,14 @@ fn test_update_total_assets_emits_assets_event_with_correct_payload() {
     );
 
     let (_, _, data) = &assets_events[0];
-    let fields = parse_event_data_as_vec(&env, data.clone());
-    assert_eq!(fields.len(), 2, "AssetsUpdatedEvent should have 2 fields");
+    let event =
+        AssetsUpdatedEvent::try_from_val(&env, data).expect("Should be an AssetsUpdatedEvent");
     assert_eq!(
-        extract_i128(&env, &fields, 0),
-        old_total,
+        event.old_total, old_total,
         "Event old_total should match previous total"
     );
     assert_eq!(
-        extract_i128(&env, &fields, 1),
-        new_total,
+        event.new_total, new_total,
         "Event new_total should match new total"
     );
 }
@@ -412,16 +348,14 @@ fn test_rebalance_emits_rebalance_event_with_correct_payload() {
     );
 
     let (_, _, data) = &rebalance_events[0];
-    let fields = parse_event_data_as_vec(&env, data.clone());
-    assert_eq!(fields.len(), 2, "RebalanceEvent should have 2 fields");
+    let event = RebalanceEvent::try_from_val(&env, data).expect("Should be a RebalanceEvent");
     assert_eq!(
-        extract_symbol(&env, &fields, 0),
+        event.protocol,
         symbol_short!("none"),
         "Event protocol should match rebalance target"
     );
     assert_eq!(
-        extract_i128(&env, &fields, 1),
-        expected_apy,
+        event.expected_apy, expected_apy,
         "Event expected_apy should match provided APY"
     );
 }
@@ -445,17 +379,16 @@ fn test_rebalance_with_blend_emits_correct_event() {
 
     let rebalance_events =
         find_events_by_topic(env.events().all(), &env, symbol_short!("rebalance"));
-    let last_event = rebalance_events.last().unwrap();
-    let (_, _, data) = last_event;
-    let fields = parse_event_data_as_vec(&env, data.clone());
+    let last_event_data = &rebalance_events.last().unwrap().2;
+    let event =
+        RebalanceEvent::try_from_val(&env, last_event_data).expect("Should be a RebalanceEvent");
     assert_eq!(
-        extract_symbol(&env, &fields, 0),
+        event.protocol,
         symbol_short!("blend"),
         "Event protocol should be blend"
     );
     assert_eq!(
-        extract_i128(&env, &fields, 1),
-        expected_apy,
+        event.expected_apy, expected_apy,
         "Event expected_apy should match provided APY"
     );
 }
@@ -498,7 +431,7 @@ fn test_all_events_have_correct_topics() {
             "All events should be from vault contract"
         );
         assert!(
-            topics.len() >= 1,
+            !topics.is_empty(),
             "Each event should have at least one topic"
         );
     }
