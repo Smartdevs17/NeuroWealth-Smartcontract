@@ -10,12 +10,12 @@ jobs:
   build-test:
     name: Build, Lint & Test
     runs-on: ubuntu-latest
+    env:
+      CARGO_TARGET_DIR: ${{ runner.temp }}/neurowealth-target
 
     steps:
-
       - name: Checkout code
         uses: actions/checkout@v4
-
 
       - name: Install Rust toolchain with components
         uses: dtolnay/rust-toolchain@stable
@@ -23,13 +23,12 @@ jobs:
           components: rustfmt, clippy
           targets: wasm32-unknown-unknown
 
-
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: neurowealth-vault
 
-      - name: Cache cargo registry and target
+      - name: Cache cargo registry and tooling
         uses: actions/cache@v4
         with:
           path: |
@@ -37,11 +36,9 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            neurowealth-vault/target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
-
 
       - name: Install Stellar CLI
         run: |
@@ -49,16 +46,27 @@ jobs:
           sudo mv soroban /usr/local/bin/
           soroban --version
 
+      - name: Pre-build disk diagnostics
+        run: |
+          df -h
+          du -sh neurowealth-vault || true
+          du -sh "${CARGO_TARGET_DIR}" || true
 
-       - name: Check formatting
-         working-directory: neurowealth-vault
-         run: cargo fmt --all -- --check
+      - name: Clean previous build artifacts
+        working-directory: neurowealth-vault
+        run: |
+          cargo clean
+          rm -rf "${CARGO_TARGET_DIR}"
+          mkdir -p "${CARGO_TARGET_DIR}"
+
+      - name: Check formatting
+        working-directory: neurowealth-vault
+        run: cargo fmt --all -- --check
 
       - name: Lint with Clippy
         working-directory: neurowealth-vault
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-  
       - name: Build contract WASM (MVP-compatible)
         working-directory: neurowealth-vault
         run: |
@@ -84,3 +92,10 @@ jobs:
       - name: Tail last 20 lines of tests
         working-directory: neurowealth-vault/contracts/vault
         run: cargo test -- --nocapture 2>&1 | tail -20
+
+      - name: Post-build disk diagnostics
+        if: always()
+        run: |
+          df -h
+          du -sh neurowealth-vault || true
+          du -sh "${CARGO_TARGET_DIR}" || true

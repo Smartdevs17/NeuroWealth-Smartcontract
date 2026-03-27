@@ -27,11 +27,11 @@ fn test_rebalance_emits_event() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (contract_id, _agent, owner, usdc_token) = setup_vault_with_token(&env);
+    let (contract_id, _agent, owner, usdc_token, blend_pool) =
+        setup_vault_with_token_and_blend(&env);
     let client = NeuroWealthVaultClient::new(&env, &contract_id);
 
     // Set up Blend pool and deposit so there are assets
-    let blend_pool = Address::generate(&env);
     client.set_blend_pool(&owner, &blend_pool);
 
     let user = Address::generate(&env);
@@ -65,11 +65,9 @@ fn test_rebalance_with_blend_after_deposit() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (contract_id, _agent, owner, usdc_token) = setup_vault_with_token(&env);
+    let (contract_id, _agent, owner, usdc_token, blend_pool) =
+        setup_vault_with_token_and_blend(&env);
     let client = NeuroWealthVaultClient::new(&env, &contract_id);
-
-    // Configure Blend pool
-    let blend_pool = Address::generate(&env);
     client.set_blend_pool(&owner, &blend_pool);
 
     // Deposit so vault has a token balance to supply
@@ -77,8 +75,15 @@ fn test_rebalance_with_blend_after_deposit() {
     let deposit_amount = 10_000_000_i128;
     mint_and_deposit(&env, &client, &usdc_token, &user, deposit_amount);
 
-    // Rebalance should succeed (BlendPoolClient methods are stubs)
     client.rebalance(&symbol_short!("blend"), &500_i128);
+
+    let token_client = TestTokenClient::new(&env, &usdc_token);
+    let blend_client = MockBlendPoolClient::new(&env, &blend_pool);
+
+    assert_eq!(blend_client.supplied(&usdc_token), deposit_amount);
+    assert_eq!(token_client.balance(&contract_id), 0);
+    assert_eq!(token_client.balance(&blend_pool), deposit_amount);
+    assert_eq!(token_client.allowance(&contract_id, &blend_pool), 0);
 }
 
 #[test]
@@ -127,4 +132,28 @@ fn test_blend_rebalance_without_pool_panics() {
 
     // blend pool not set → should panic
     client.rebalance(&symbol_short!("blend"), &500_i128);
+}
+
+#[test]
+fn test_mock_token_transfer_from_uses_and_decrements_allowance() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token = env.register_contract(None, TestToken);
+    let token_client = TestTokenClient::new(&env, &token);
+
+    let owner = Address::generate(&env);
+    let spender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    token_client.mint(&owner, &10_000_000_i128);
+    token_client.approve(&owner, &spender, &6_000_000_i128, &10_000_u32);
+
+    assert_eq!(token_client.allowance(&owner, &spender), 6_000_000_i128);
+
+    token_client.transfer_from(&spender, &owner, &recipient, &4_000_000_i128);
+
+    assert_eq!(token_client.balance(&owner), 6_000_000_i128);
+    assert_eq!(token_client.balance(&recipient), 4_000_000_i128);
+    assert_eq!(token_client.allowance(&owner, &spender), 2_000_000_i128);
 }

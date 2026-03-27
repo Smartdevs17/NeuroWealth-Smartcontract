@@ -98,7 +98,9 @@
 
 use core::cmp::min;
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env, Symbol,
+    auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation},
+    contract, contractimpl, contracttype, symbol_short, token, vec, Address, BytesN, Env, IntoVal,
+    Symbol, Val, Vec,
 };
 
 // ============================================================================
@@ -359,6 +361,16 @@ pub struct UpgradedEvent {
 /// - `get_user_reserve_data` - Gets user's reserve data including balance
 struct BlendPoolClient;
 
+#[derive(Clone)]
+#[contracttype]
+struct BlendRequest {
+    request_type: u32,
+    address: Address,
+    amount: i128,
+}
+
+const BLEND_REQUEST_TYPE_SUPPLY: u32 = 0;
+
 impl BlendPoolClient {
     /// Deposits assets to the Blend pool.
     ///
@@ -375,18 +387,31 @@ impl BlendPoolClient {
     /// # Returns
     /// The amount of pool tokens received (or amount deposited on success)
     fn supply(
-        _env: &Env,
-        _pool_address: &Address,
-        _asset: &Address,
+        env: &Env,
+        pool_address: &Address,
+        asset: &Address,
         amount: i128,
-        _to: &Address,
+        to: &Address,
     ) -> i128 {
-        // Call Blend's deposit function
-        // Function signature: deposit(env, asset: Address, amount: i128, to: Address) -> i128
-        // Based on blend-interfaces: https://docs.rs/blend-interfaces/0.0.1/blend_interfaces/pool/trait.Pool.html
-        // TODO: Verify exact function signature and argument pattern against Blend's deployed contract
-        // For now, return amount as placeholder - this will be replaced with actual cross-contract call
-        // once Blend's interface is verified on testnet
+        let request = BlendRequest {
+            request_type: BLEND_REQUEST_TYPE_SUPPLY,
+            address: asset.clone(),
+            amount,
+        };
+        let requests: Vec<BlendRequest> = vec![env, request];
+        let args: Vec<Val> = vec![
+            env,
+            to.into_val(env),
+            to.into_val(env),
+            to.into_val(env),
+            requests.into_val(env),
+        ];
+
+        env.invoke_contract::<Val>(
+            pool_address,
+            &Symbol::new(env, "submit_with_allowance"),
+            args,
+        );
         amount
     }
 
@@ -2198,15 +2223,70 @@ impl NeuroWealthVault {
 
         let usdc_token: Address = env.storage().instance().get(&DataKey::UsdcToken).unwrap();
         let vault_address = env.current_contract_address();
+        let approval_ledger = env.ledger().sequence() + 100_000;
+        let request = BlendRequest {
+            request_type: BLEND_REQUEST_TYPE_SUPPLY,
+            address: usdc_token.clone(),
+            amount,
+        };
+        let requests: Vec<BlendRequest> = vec![env, request];
+        let approval_args: Vec<Val> = vec![
+            env,
+            vault_address.clone().into_val(env),
+            pool_address.clone().into_val(env),
+            amount.into_val(env),
+            approval_ledger.into_val(env),
+        ];
+        let submit_args: Vec<Val> = vec![
+            env,
+            vault_address.clone().into_val(env),
+            vault_address.clone().into_val(env),
+            vault_address.clone().into_val(env),
+            requests.into_val(env),
+        ];
+        let transfer_from_args: Vec<Val> = vec![
+            env,
+            pool_address.clone().into_val(env),
+            vault_address.clone().into_val(env),
+            pool_address.clone().into_val(env),
+            amount.into_val(env),
+        ];
 
-        // Approve Blend pool to spend USDC from vault
         let token_client = token::Client::new(env, &usdc_token);
-        token_client.approve(&vault_address, &pool_address, &amount, &1000000);
+        env.authorize_as_current_contract(vec![
+            env,
+            InvokerContractAuthEntry::Contract(SubContractInvocation {
+                context: ContractContext {
+                    contract: usdc_token.clone(),
+                    fn_name: Symbol::new(env, "approve"),
+                    args: approval_args,
+                },
+                sub_invocations: vec![env],
+            }),
+        ]);
+        token_client.approve(&vault_address, &pool_address, &amount, &approval_ledger);
 
-        // Supply to Blend pool
-        // Note: Blend's supply function may require the vault to transfer USDC first,
-        // then call supply. The exact pattern depends on Blend's interface.
-        // For now, we assume Blend handles the transfer internally via approval.
+        env.authorize_as_current_contract(vec![
+            env,
+            InvokerContractAuthEntry::Contract(SubContractInvocation {
+                context: ContractContext {
+                    contract: pool_address.clone(),
+                    fn_name: Symbol::new(env, "submit_with_allowance"),
+                    args: submit_args.clone(),
+                },
+                sub_invocations: vec![
+                    env,
+                    InvokerContractAuthEntry::Contract(SubContractInvocation {
+                        context: ContractContext {
+                            contract: usdc_token.clone(),
+                            fn_name: Symbol::new(env, "transfer_from"),
+                            args: transfer_from_args,
+                        },
+                        sub_invocations: vec![env],
+                    }),
+                ],
+            }),
+        ]);
         let supplied =
             BlendPoolClient::supply(env, &pool_address, &usdc_token, amount, &vault_address);
 
