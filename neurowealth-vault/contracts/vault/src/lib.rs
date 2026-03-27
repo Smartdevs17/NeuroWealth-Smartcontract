@@ -433,14 +433,14 @@ impl BlendPoolClient {
             amount,
         };
         let requests: Vec<BlendRequest> = vec![env, request];
-        
+
         // submit_with_allowance(from: Address, spender: Address, to: Address, requests: Vec<Request>)
         // The pool will call transfer_from on the token contract
         let args: Vec<Val> = vec![
             env,
-            to.into_val(env),      // from: vault address (token owner)
-            to.into_val(env),      // spender: vault address (authorized spender)
-            to.into_val(env),      // to: vault address (receives pool position)
+            to.into_val(env),       // from: vault address (token owner)
+            to.into_val(env),       // spender: vault address (authorized spender)
+            to.into_val(env),       // to: vault address (receives pool position)
             requests.into_val(env), // requests: vector of supply requests
         ];
 
@@ -451,7 +451,7 @@ impl BlendPoolClient {
             &Symbol::new(env, "submit_with_allowance"),
             args,
         );
-        
+
         // Return the amount supplied (Blend doesn't return a value from submit)
         amount
     }
@@ -488,23 +488,19 @@ impl BlendPoolClient {
             amount,
         };
         let requests: Vec<BlendRequest> = vec![env, request];
-        
+
         // submit(from: Address, to: Address, requests: Vec<Request>)
         let args: Vec<Val> = vec![
             env,
-            to.into_val(env),      // from: vault address (position owner)
-            to.into_val(env),      // to: vault address (receives withdrawn assets)
+            to.into_val(env),       // from: vault address (position owner)
+            to.into_val(env),       // to: vault address (receives withdrawn assets)
             requests.into_val(env), // requests: vector of withdraw requests
         ];
 
         // Invoke Blend's submit function
         // This function processes the withdraw request and returns nothing (void)
-        env.invoke_contract::<Val>(
-            pool_address,
-            &Symbol::new(env, "submit"),
-            args,
-        );
-        
+        env.invoke_contract::<Val>(pool_address, &Symbol::new(env, "submit"), args);
+
         // Return the amount withdrawn (Blend doesn't return a value from submit)
         amount
     }
@@ -2353,7 +2349,7 @@ impl NeuroWealthVault {
         let usdc_token: Address = env.storage().instance().get(&DataKey::UsdcToken).unwrap();
         let vault_address = env.current_contract_address();
         let approval_ledger = env.ledger().sequence() + 100_000;
-        
+
         // Prepare authorization for token approval and Blend supply
         let approval_args: Vec<Val> = vec![
             env,
@@ -2422,7 +2418,7 @@ impl NeuroWealthVault {
                 ],
             }),
         ]);
-        
+
         // Call Blend supply function
         let supplied =
             BlendPoolClient::supply(env, &pool_address, &usdc_token, amount, &vault_address);

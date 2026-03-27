@@ -204,32 +204,27 @@ pub mod blend {
             request.amount
         }
 
-        pub fn submit(
-            env: Env,
-            from: Address,
-            to: Address,
-            requests: Vec<crate::BlendRequest>,
-        ) {
+        pub fn submit(env: Env, from: Address, to: Address, requests: Vec<crate::BlendRequest>) {
             from.require_auth();
-            
+
             assert_eq!(requests.len(), 1, "expected one request");
             let request = requests.get(0).unwrap();
-            
+
             let token_client = TestTokenClient::new(&env, &request.address);
             let pool_balance = token_client.balance(&env.current_contract_address());
-            
+
             match request.request_type {
                 1 => {
                     // Withdraw request (type 1)
                     let amount_to_withdraw = core::cmp::min(request.amount, pool_balance);
-                    
+
                     if amount_to_withdraw > 0 {
                         token_client.transfer(
                             &env.current_contract_address(),
                             &to,
                             &amount_to_withdraw,
                         );
-                        
+
                         // Update supplied tracking
                         let total_supplied: i128 = env
                             .storage()
