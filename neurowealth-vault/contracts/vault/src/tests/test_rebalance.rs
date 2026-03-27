@@ -14,8 +14,8 @@ fn test_agent_can_rebalance_with_custom_protocol() {
     // Verify agent is set correctly
     assert_eq!(client.get_agent(), agent);
 
-    // Use a non-blend protocol so no Blend pool config is required
-    let protocol = symbol_short!("balanced");
+    // Use "none" protocol — always safe, no external pool required
+    let protocol = symbol_short!("none");
     let expected_apy = 500_i128; // 5% APY in basis points
 
     // Should succeed with mock_all_auths (require_is_agent passes)
@@ -60,8 +60,11 @@ fn test_rebalance_storage_current_protocol_changes() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (contract_id, _agent, _owner, _usdc_token) = setup_vault_with_token(&env);
+    let (contract_id, _agent, owner, usdc_token, blend_pool) =
+        setup_vault_with_token_and_blend(&env);
     let client = NeuroWealthVaultClient::new(&env, &contract_id);
+
+    client.set_blend_pool(&owner, &blend_pool);
 
     // Initial state: no protocol set
     assert_eq!(
@@ -70,14 +73,18 @@ fn test_rebalance_storage_current_protocol_changes() {
         "Initial CurrentProtocol should be 'none'"
     );
 
-    // Rebalance to a protocol
-    client.rebalance(&symbol_short!("balanced"), &500_i128);
+    // Deposit so vault has funds to supply
+    let user = Address::generate(&env);
+    mint_and_deposit(&env, &client, &usdc_token, &user, 10_000_000_i128);
+
+    // Rebalance to blend
+    client.rebalance(&symbol_short!("blend"), &500_i128);
 
     // Assert storage state changed
     assert_eq!(
         client.get_current_protocol(),
-        symbol_short!("balanced"),
-        "CurrentProtocol should be 'balanced' after rebalance"
+        symbol_short!("blend"),
+        "CurrentProtocol should be 'blend' after rebalance"
     );
 }
 
@@ -248,4 +255,17 @@ fn test_mock_token_transfer_from_uses_and_decrements_allowance() {
     assert_eq!(token_client.balance(&owner), 6_000_000_i128);
     assert_eq!(token_client.balance(&recipient), 4_000_000_i128);
     assert_eq!(token_client.allowance(&owner, &spender), 2_000_000_i128);
+}
+
+#[test]
+#[should_panic(expected = "vault: unsupported protocol")]
+fn test_rebalance_with_unsupported_protocol_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, _agent, _owner, _usdc_token) = setup_vault_with_token(&env);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+
+    // "balanced" is not a supported protocol — should panic
+    client.rebalance(&symbol_short!("balanced"), &500_i128);
 }

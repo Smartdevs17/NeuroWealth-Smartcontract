@@ -28,196 +28,220 @@ enum BlendMockDataKey {
     Supplied(Address),
 }
 
-#[contract]
-pub struct TestToken;
+pub mod token {
+    use super::*;
 
-#[contractimpl]
-impl TestToken {
-    pub fn mint(env: Env, to: Address, amount: i128) {
-        let balance: i128 = env
-            .storage()
-            .persistent()
-            .get(&TokenDataKey::Balance(to.clone()))
-            .unwrap_or(0);
-        env.storage()
-            .persistent()
-            .set(&TokenDataKey::Balance(to), &(balance + amount));
-    }
+    #[contract]
+    pub struct TestToken;
 
-    pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
-        from.require_auth();
-        assert!(amount > 0, "amount must be positive");
-
-        let from_balance: i128 = env
-            .storage()
-            .persistent()
-            .get(&TokenDataKey::Balance(from.clone()))
-            .unwrap_or(0);
-        assert!(from_balance >= amount, "insufficient balance");
-
-        let to_balance: i128 = env
-            .storage()
-            .persistent()
-            .get(&TokenDataKey::Balance(to.clone()))
-            .unwrap_or(0);
-
-        env.storage()
-            .persistent()
-            .set(&TokenDataKey::Balance(from), &(from_balance - amount));
-        env.storage()
-            .persistent()
-            .set(&TokenDataKey::Balance(to), &(to_balance + amount));
-    }
-
-    pub fn balance(env: Env, owner: Address) -> i128 {
-        env.storage()
-            .persistent()
-            .get(&TokenDataKey::Balance(owner))
-            .unwrap_or(0)
-    }
-
-    pub fn approve(
-        env: Env,
-        from: Address,
-        spender: Address,
-        amount: i128,
-        expiration_ledger: u32,
-    ) {
-        from.require_auth();
-        assert!(amount >= 0, "amount must be non-negative");
-
-        env.storage().persistent().set(
-            &TokenDataKey::Allowance(from.clone(), spender.clone()),
-            &amount,
-        );
-        env.storage().persistent().set(
-            &TokenDataKey::AllowanceExpiration(from, spender),
-            &expiration_ledger,
-        );
-    }
-
-    pub fn allowance(env: Env, from: Address, spender: Address) -> i128 {
-        let expiration: u32 = env
-            .storage()
-            .persistent()
-            .get(&TokenDataKey::AllowanceExpiration(
-                from.clone(),
-                spender.clone(),
-            ))
-            .unwrap_or(0);
-
-        if expiration > 0 && expiration < env.ledger().sequence() {
-            return 0;
+    #[contractimpl]
+    impl TestToken {
+        pub fn mint(env: Env, to: Address, amount: i128) {
+            let balance: i128 = env
+                .storage()
+                .persistent()
+                .get(&TokenDataKey::Balance(to.clone()))
+                .unwrap_or(0);
+            env.storage()
+                .persistent()
+                .set(&TokenDataKey::Balance(to), &(balance + amount));
         }
 
-        env.storage()
-            .persistent()
-            .get(&TokenDataKey::Allowance(from, spender))
-            .unwrap_or(0)
-    }
+        pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
+            from.require_auth();
+            assert!(amount > 0, "amount must be positive");
 
-    pub fn transfer_from(env: Env, spender: Address, from: Address, to: Address, amount: i128) {
-        spender.require_auth();
-        assert!(amount > 0, "amount must be positive");
+            let from_balance: i128 = env
+                .storage()
+                .persistent()
+                .get(&TokenDataKey::Balance(from.clone()))
+                .unwrap_or(0);
+            assert!(from_balance >= amount, "insufficient balance");
 
-        let allowance = Self::allowance(env.clone(), from.clone(), spender.clone());
-        assert!(allowance >= amount, "insufficient allowance");
+            let to_balance: i128 = env
+                .storage()
+                .persistent()
+                .get(&TokenDataKey::Balance(to.clone()))
+                .unwrap_or(0);
 
-        let from_balance: i128 = env
-            .storage()
-            .persistent()
-            .get(&TokenDataKey::Balance(from.clone()))
-            .unwrap_or(0);
-        assert!(from_balance >= amount, "insufficient balance");
+            env.storage()
+                .persistent()
+                .set(&TokenDataKey::Balance(from), &(from_balance - amount));
+            env.storage()
+                .persistent()
+                .set(&TokenDataKey::Balance(to), &(to_balance + amount));
+        }
 
-        let to_balance: i128 = env
-            .storage()
-            .persistent()
-            .get(&TokenDataKey::Balance(to.clone()))
-            .unwrap_or(0);
+        pub fn balance(env: Env, owner: Address) -> i128 {
+            env.storage()
+                .persistent()
+                .get(&TokenDataKey::Balance(owner))
+                .unwrap_or(0)
+        }
 
-        env.storage().persistent().set(
-            &TokenDataKey::Balance(from.clone()),
-            &(from_balance - amount),
-        );
-        env.storage()
-            .persistent()
-            .set(&TokenDataKey::Balance(to), &(to_balance + amount));
-        env.storage().persistent().set(
-            &TokenDataKey::Allowance(from, spender.clone()),
-            &(allowance - amount),
-        );
+        pub fn approve(
+            env: Env,
+            from: Address,
+            spender: Address,
+            amount: i128,
+            expiration_ledger: u32,
+        ) {
+            from.require_auth();
+            assert!(amount >= 0, "amount must be non-negative");
+
+            env.storage().persistent().set(
+                &TokenDataKey::Allowance(from.clone(), spender.clone()),
+                &amount,
+            );
+            env.storage().persistent().set(
+                &TokenDataKey::AllowanceExpiration(from, spender),
+                &expiration_ledger,
+            );
+        }
+
+        pub fn allowance(env: Env, from: Address, spender: Address) -> i128 {
+            let expiration: u32 = env
+                .storage()
+                .persistent()
+                .get(&TokenDataKey::AllowanceExpiration(
+                    from.clone(),
+                    spender.clone(),
+                ))
+                .unwrap_or(0);
+
+            if expiration > 0 && expiration < env.ledger().sequence() {
+                return 0;
+            }
+
+            env.storage()
+                .persistent()
+                .get(&TokenDataKey::Allowance(from, spender))
+                .unwrap_or(0)
+        }
+
+        pub fn transfer_from(env: Env, spender: Address, from: Address, to: Address, amount: i128) {
+            spender.require_auth();
+            assert!(amount > 0, "amount must be positive");
+
+            let allowance = Self::allowance(env.clone(), from.clone(), spender.clone());
+            assert!(allowance >= amount, "insufficient allowance");
+
+            let from_balance: i128 = env
+                .storage()
+                .persistent()
+                .get(&TokenDataKey::Balance(from.clone()))
+                .unwrap_or(0);
+            assert!(from_balance >= amount, "insufficient balance");
+
+            let to_balance: i128 = env
+                .storage()
+                .persistent()
+                .get(&TokenDataKey::Balance(to.clone()))
+                .unwrap_or(0);
+
+            env.storage().persistent().set(
+                &TokenDataKey::Balance(from.clone()),
+                &(from_balance - amount),
+            );
+            env.storage()
+                .persistent()
+                .set(&TokenDataKey::Balance(to), &(to_balance + amount));
+            env.storage().persistent().set(
+                &TokenDataKey::Allowance(from, spender.clone()),
+                &(allowance - amount),
+            );
+        }
     }
 }
 
-#[contract]
-pub struct MockBlendPool;
+pub use token::{TestToken, TestTokenClient};
 
-#[contractimpl]
-impl MockBlendPool {
-    pub fn submit_with_allowance(
-        env: Env,
-        from: Address,
-        spender: Address,
-        _to: Address,
-        requests: Vec<crate::BlendRequest>,
-    ) -> i128 {
-        assert_eq!(requests.len(), 1, "expected one request");
-        let request = requests.get(0).unwrap();
-        assert_eq!(request.request_type, 0, "expected supply request");
+pub mod blend {
+    use super::*;
 
-        let token_client = TestTokenClient::new(&env, &request.address);
-        let allowance = token_client.allowance(&spender, &env.current_contract_address());
-        assert!(
-            allowance >= request.amount,
-            "expected allowance before pool pull"
-        );
+    #[contract]
+    pub struct MockBlendPool;
 
-        token_client.transfer_from(
-            &env.current_contract_address(),
-            &spender,
-            &env.current_contract_address(),
-            &request.amount,
-        );
+    #[contractimpl]
+    impl MockBlendPool {
+        pub fn submit_with_allowance(
+            env: Env,
+            from: Address,
+            spender: Address,
+            _to: Address,
+            requests: Vec<crate::BlendRequest>,
+        ) -> i128 {
+            assert_eq!(requests.len(), 1, "expected one request");
+            let request = requests.get(0).unwrap();
+            assert_eq!(request.request_type, 0, "expected supply request");
 
-        let total_supplied: i128 = env
-            .storage()
-            .persistent()
-            .get(&BlendMockDataKey::Supplied(request.address.clone()))
-            .unwrap_or(0);
-        env.storage().persistent().set(
-            &BlendMockDataKey::Supplied(request.address),
-            &(total_supplied + request.amount),
-        );
+            let token_client = TestTokenClient::new(&env, &request.address);
+            let allowance = token_client.allowance(&spender, &env.current_contract_address());
+            assert!(
+                allowance >= request.amount,
+                "expected allowance before pool pull"
+            );
 
-        from.clone().require_auth();
+            token_client.transfer_from(
+                &env.current_contract_address(),
+                &spender,
+                &env.current_contract_address(),
+                &request.amount,
+            );
 
-        request.amount
-    }
+            let total_supplied: i128 = env
+                .storage()
+                .persistent()
+                .get(&BlendMockDataKey::Supplied(request.address.clone()))
+                .unwrap_or(0);
+            env.storage().persistent().set(
+                &BlendMockDataKey::Supplied(request.address),
+                &(total_supplied + request.amount),
+            );
 
-    pub fn supplied(env: Env, asset: Address) -> i128 {
-        env.storage()
-            .persistent()
-            .get(&BlendMockDataKey::Supplied(asset))
-            .unwrap_or(0)
+            from.clone().require_auth();
+
+            request.amount
+        }
+
+        pub fn redeem(env: Env, asset: Address, amount: i128, to: Address) -> i128 {
+            let token_client = TestTokenClient::new(&env, &asset);
+            let pool_balance = token_client.balance(&env.current_contract_address());
+
+            // Mock partial redemption: return only half if requested > 0
+            let actual_to_return = if amount > 0 {
+                core::cmp::min(amount, pool_balance / 2)
+            } else {
+                0
+            };
+
+            if actual_to_return > 0 {
+                token_client.transfer(&env.current_contract_address(), &to, &actual_to_return);
+            }
+            actual_to_return
+        }
+
+        pub fn balance(env: Env, asset: Address, _user: Address) -> i128 {
+            TestTokenClient::new(&env, &asset).balance(&env.current_contract_address())
+        }
+
+        pub fn supplied(env: Env, asset: Address) -> i128 {
+            env.storage()
+                .persistent()
+                .get(&BlendMockDataKey::Supplied(asset))
+                .unwrap_or(0)
+        }
     }
 }
+
+pub use blend::{MockBlendPool, MockBlendPoolClient};
 
 // ============================================================================
 // TEST SETUP FUNCTIONS
 // ============================================================================
 
-/// Sets up a vault with a mock (non-functional) USDC token address.
 pub fn setup_vault(env: &Env) -> (Address, Address, Address) {
-    let contract_id = env.register_contract(None, NeuroWealthVault);
-    let client = NeuroWealthVaultClient::new(env, &contract_id);
-
-    let agent = Address::generate(env);
-    let usdc_token = Address::generate(env);
-    let owner = agent.clone();
-
-    client.initialize(&agent, &usdc_token);
-
+    let (contract_id, agent, owner, _usdc_token) = setup_vault_with_token(env);
     (contract_id, agent, owner)
 }
 

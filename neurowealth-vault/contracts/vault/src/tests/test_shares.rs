@@ -54,9 +54,11 @@ fn test_total_shares_consistency_after_multiple_operations() {
 
     mint_and_deposit(&env, &client, &usdc_token, &user1, 2_000_000_i128);
 
+    // After yield (19.5M assets / 12M shares = 1.625 price)
+    // 2M assets / 1.625 = 1,230,769 shares
     assert_eq!(
         client.get_total_shares(),
-        total_after_withdraw + 2_000_000_i128
+        total_after_withdraw + 1_230_769_i128
     );
 }
 
@@ -273,7 +275,8 @@ fn test_withdraw_never_over_withdraws() {
     client.withdraw(&user, &10_000_000_i128);
 
     let shares_after = client.get_shares(&user);
-    assert_eq!(shares_after, shares_before - 10_000_000_i128);
+    // At 1.5x price (15M assets / 10M shares), 10M assets = 6,666,666 shares
+    assert_eq!(shares_after, shares_before - 6_666_666_i128);
     assert!(
         client.get_balance(&user) <= balance_before,
         "Balance should not increase from withdrawal"
@@ -334,18 +337,19 @@ fn test_rounding_down_on_share_mint() {
     let user1 = Address::generate(&env);
     let user2 = Address::generate(&env);
 
-    mint_and_deposit(&env, &client, &usdc_token, &user1, 3_i128);
+    // Initial deposit: 3,000,000 units -> 3,000,000 shares
+    mint_and_deposit(&env, &client, &usdc_token, &user1, 3_000_000_i128);
 
-    token_client.mint(&contract_id, &1_i128);
-    client.update_total_assets(&agent, &(4_i128));
+    // Inflate assets: total assets 4,000,000, total shares 3,000,000 (Price = 1.333...)
+    token_client.mint(&contract_id, &1_000_000_i128);
+    client.update_total_assets(&agent, &(4_000_000_i128));
 
-    mint_and_deposit(&env, &client, &usdc_token, &user2, 1_i128);
+    // User2 deposits 2,000,001 units
+    // Expected shares = floor(2,000,001 * 3,000,000 / 4,000,000) = floor(1,500,000.75) = 1,500,000
+    mint_and_deposit(&env, &client, &usdc_token, &user2, 2_000_001_i128);
 
     let user2_shares = client.get_shares(&user2);
-    assert!(
-        user2_shares <= 1_i128,
-        "Due to rounding, shares should be <= deposited amount"
-    );
+    assert_eq!(user2_shares, 1_500_000);
 }
 
 #[test]
@@ -370,10 +374,11 @@ fn test_withdraw_burns_proportional_shares_after_yield() {
     client.withdraw(&user, &withdraw_amount);
 
     let shares_after = client.get_shares(&user);
+    // At 2x price (20M assets / 10M shares), 5M assets = 2.5M shares
     assert_eq!(
         shares_after,
-        shares_before - withdraw_amount,
-        "At 2x price, should burn exactly withdraw_amount shares"
+        shares_before - 2_500_000_i128,
+        "At 2x price, should burn exactly 2.5M shares for 5M assets"
     );
 }
 
