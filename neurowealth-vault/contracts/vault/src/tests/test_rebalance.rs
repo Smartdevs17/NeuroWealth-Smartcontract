@@ -46,6 +46,98 @@ fn test_rebalance_emits_event() {
         !rebalance_events.is_empty(),
         "Rebalance should emit an event"
     );
+
+    // Assert storage state change: CurrentProtocol should be "blend"
+    assert_eq!(
+        client.get_current_protocol(),
+        symbol_short!("blend"),
+        "CurrentProtocol should be 'blend' after rebalance to blend"
+    );
+}
+
+#[test]
+fn test_rebalance_storage_current_protocol_changes() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, _agent, _owner, _usdc_token) = setup_vault_with_token(&env);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+
+    // Initial state: no protocol set
+    assert_eq!(
+        client.get_current_protocol(),
+        symbol_short!("none"),
+        "Initial CurrentProtocol should be 'none'"
+    );
+
+    // Rebalance to a protocol
+    client.rebalance(&symbol_short!("balanced"), &500_i128);
+
+    // Assert storage state changed
+    assert_eq!(
+        client.get_current_protocol(),
+        symbol_short!("balanced"),
+        "CurrentProtocol should be 'balanced' after rebalance"
+    );
+}
+
+#[test]
+fn test_rebalance_storage_current_protocol_changes_to_none() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, _agent, owner, usdc_token, blend_pool) =
+        setup_vault_with_token_and_blend(&env);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+
+    client.set_blend_pool(&owner, &blend_pool);
+
+    let user = Address::generate(&env);
+    mint_and_deposit(&env, &client, &usdc_token, &user, 10_000_000_i128);
+
+    // First rebalance to blend
+    client.rebalance(&symbol_short!("blend"), &500_i128);
+    assert_eq!(
+        client.get_current_protocol(),
+        symbol_short!("blend"),
+        "CurrentProtocol should be 'blend'"
+    );
+
+    // Then rebalance to none
+    client.rebalance(&symbol_short!("none"), &0_i128);
+
+    // Assert storage state changed to none
+    assert_eq!(
+        client.get_current_protocol(),
+        symbol_short!("none"),
+        "CurrentProtocol should be 'none' after rebalance to none"
+    );
+}
+
+#[test]
+fn test_set_blend_pool_storage() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, _agent, owner, _usdc_token, blend_pool) =
+        setup_vault_with_token_and_blend(&env);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+
+    // Initially no blend pool
+    assert!(
+        client.get_blend_pool().is_none(),
+        "BlendPool should be None before set_blend_pool"
+    );
+
+    // Set blend pool
+    client.set_blend_pool(&owner, &blend_pool);
+
+    // Assert storage state changed
+    assert_eq!(
+        client.get_blend_pool(),
+        Some(blend_pool.clone()),
+        "BlendPool should be set to the provided address"
+    );
 }
 
 #[test]
