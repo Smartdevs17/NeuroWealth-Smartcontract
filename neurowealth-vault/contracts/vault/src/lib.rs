@@ -1893,6 +1893,14 @@ impl NeuroWealthVault {
         Self::get_total_assets_internal(&env)
     }
 
+    /// Returns the total number of shares in circulation.
+    ///
+    /// This is the sum of all user shares and represents proportional ownership
+    /// of the vault's total assets.
+    pub fn get_total_shares(env: Env) -> i128 {
+        Self::get_total_shares_internal(&env)
+    }
+
     /// Returns the share balance of a specific user.
     ///
     /// This is the number of vault shares the user owns.

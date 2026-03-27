@@ -1,10 +1,36 @@
-//! Tests verifying that each contract operation emits the expected event
+//! Tests verifying that each contract operation emits the expected event with correct payload values
 
 use super::utils::*;
-use soroban_sdk::{symbol_short, testutils::Address as _, Address, Env};
+use soroban_sdk::{symbol_short, testutils::Address as _, Address, Env, TryFromVal, Val, Vec};
+
+fn get_val_at_index(env: &Env, vec: &Vec<Val>, index: u32) -> Val {
+    match vec.get(index) {
+        Some(val) => val,
+        None => Val::from_void().into(),
+    }
+}
+
+fn extract_i128(env: &Env, vec: &Vec<Val>, index: u32) -> i128 {
+    let val = get_val_at_index(env, vec, index);
+    i128::try_from_val(env, &val).unwrap_or(0)
+}
+
+fn extract_address(env: &Env, vec: &Vec<Val>, index: u32) -> Address {
+    let val = get_val_at_index(env, vec, index);
+    Address::try_from_val(env, &val).unwrap()
+}
+
+fn extract_symbol(env: &Env, vec: &Vec<Val>, index: u32) -> soroban_sdk::Symbol {
+    let val = get_val_at_index(env, vec, index);
+    soroban_sdk::Symbol::try_from_val(env, &val).unwrap_or(symbol_short!(""))
+}
+
+fn parse_event_data_as_vec(env: &Env, data: Val) -> Vec<Val> {
+    Vec::<Val>::try_from_val(env, &data).unwrap_or_else(|_| Vec::new(env))
+}
 
 #[test]
-fn test_initialize_emits_init_event() {
+fn test_initialize_emits_init_event_with_correct_payload() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -13,6 +39,7 @@ fn test_initialize_emits_init_event() {
 
     let agent = Address::generate(&env);
     let usdc_token = Address::generate(&env);
+    let expected_tvl_cap = 100_000_000_000_i128;
     client.initialize(&agent, &usdc_token);
 
     let init_events = find_events_by_topic(env.events().all(), &env, symbol_short!("init"));
@@ -21,10 +48,33 @@ fn test_initialize_emits_init_event() {
         1,
         "Exactly one init event should be emitted"
     );
+
+    let (_, _, data) = &init_events[0];
+    let fields = parse_event_data_as_vec(&env, data.clone());
+    assert_eq!(
+        fields.len(),
+        3,
+        "VaultInitializedEvent should have 3 fields"
+    );
+    assert_eq!(
+        extract_address(&env, &fields, 0),
+        agent,
+        "Event agent should match initialized agent"
+    );
+    assert_eq!(
+        extract_address(&env, &fields, 1),
+        usdc_token,
+        "Event usdc_token should match initialized token"
+    );
+    assert_eq!(
+        extract_i128(&env, &fields, 2),
+        expected_tvl_cap,
+        "Event tvl_cap should match default cap"
+    );
 }
 
 #[test]
-fn test_deposit_emits_deposit_event() {
+fn test_deposit_emits_deposit_event_with_correct_payload() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -32,14 +82,66 @@ fn test_deposit_emits_deposit_event() {
     let client = NeuroWealthVaultClient::new(&env, &contract_id);
 
     let user = Address::generate(&env);
-    mint_and_deposit(&env, &client, &usdc_token, &user, 5_000_000_i128);
+    let deposit_amount = 5_000_000_i128;
+    mint_and_deposit(&env, &client, &usdc_token, &user, deposit_amount);
 
     let deposit_events = find_events_by_topic(env.events().all(), &env, symbol_short!("deposit"));
     assert!(!deposit_events.is_empty(), "Deposit should emit an event");
+
+    let (_, _, data) = &deposit_events[0];
+    let fields = parse_event_data_as_vec(&env, data.clone());
+    assert_eq!(fields.len(), 3, "DepositEvent should have 3 fields");
+    assert_eq!(
+        extract_address(&env, &fields, 0),
+        user,
+        "Event user should match depositor"
+    );
+    assert_eq!(
+        extract_i128(&env, &fields, 1),
+        deposit_amount,
+        "Event amount should match deposited amount"
+    );
+    assert_eq!(
+        extract_i128(&env, &fields, 2),
+        deposit_amount,
+        "First deposit should mint 1:1 shares"
+    );
 }
 
 #[test]
-fn test_withdraw_emits_withdraw_event() {
+fn test_deposit_multiple_users_events_correct() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, _agent, _owner, usdc_token) = setup_vault_with_token(&env);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+    let amount1 = 10_000_000_i128;
+    let amount2 = 5_000_000_i128;
+
+    mint_and_deposit(&env, &client, &usdc_token, &user1, amount1);
+    mint_and_deposit(&env, &client, &usdc_token, &user2, amount2);
+
+    let deposit_events = find_events_by_topic(env.events().all(), &env, symbol_short!("deposit"));
+    assert_eq!(deposit_events.len(), 2, "Should emit two deposit events");
+
+    let (_, _, data1) = &deposit_events[0];
+    let fields1 = parse_event_data_as_vec(&env, data1.clone());
+    assert_eq!(extract_address(&env, &fields1, 0), user1);
+    assert_eq!(extract_i128(&env, &fields1, 1), amount1);
+    assert_eq!(extract_i128(&env, &fields1, 2), amount1);
+
+    let (_, _, data2) = &deposit_events[1];
+    let fields2 = parse_event_data_as_vec(&env, data2.clone());
+    assert_eq!(extract_address(&env, &fields2, 0), user2);
+    assert_eq!(extract_i128(&env, &fields2, 1), amount2);
+    assert_eq!(extract_i128(&env, &fields2, 2), amount2);
+}
+
+#[test]
+fn test_withdraw_emits_withdraw_event_with_correct_payload() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -50,14 +152,71 @@ fn test_withdraw_emits_withdraw_event() {
     let deposit_amount = 10_000_000_i128;
     mint_and_deposit(&env, &client, &usdc_token, &user, deposit_amount);
 
-    client.withdraw(&user, &3_000_000_i128);
+    let withdraw_amount = 3_000_000_i128;
+    client.withdraw(&user, &withdraw_amount);
 
     let withdraw_events = find_events_by_topic(env.events().all(), &env, symbol_short!("withdraw"));
     assert!(!withdraw_events.is_empty(), "Withdraw should emit an event");
+
+    let (_, _, data) = &withdraw_events[0];
+    let fields = parse_event_data_as_vec(&env, data.clone());
+    assert_eq!(fields.len(), 3, "WithdrawEvent should have 3 fields");
+    assert_eq!(
+        extract_address(&env, &fields, 0),
+        user,
+        "Event user should match withdrawer"
+    );
+    assert_eq!(
+        extract_i128(&env, &fields, 1),
+        withdraw_amount,
+        "Event amount should match withdrawn amount"
+    );
+    assert_eq!(
+        extract_i128(&env, &fields, 2),
+        withdraw_amount,
+        "At 1:1 price, shares burned should equal amount"
+    );
 }
 
 #[test]
-fn test_pause_emits_paused_event() {
+fn test_withdraw_all_emits_withdraw_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, _agent, _owner, usdc_token) = setup_vault_with_token(&env);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+
+    let user = Address::generate(&env);
+    let deposit_amount = 10_000_000_i128;
+    mint_and_deposit(&env, &client, &usdc_token, &user, deposit_amount);
+
+    let withdrawn = client.withdraw_all(&user);
+
+    assert_eq!(withdrawn, deposit_amount, "Should withdraw full balance");
+
+    let withdraw_events = find_events_by_topic(env.events().all(), &env, symbol_short!("withdraw"));
+    let last_event = withdraw_events.last().unwrap();
+    let (_, _, data) = last_event;
+    let fields = parse_event_data_as_vec(&env, data.clone());
+    assert_eq!(
+        extract_address(&env, &fields, 0),
+        user,
+        "Event user should match withdrawer"
+    );
+    assert_eq!(
+        extract_i128(&env, &fields, 1),
+        deposit_amount,
+        "Event amount should match full balance"
+    );
+    assert_eq!(
+        extract_i128(&env, &fields, 2),
+        deposit_amount,
+        "Should burn all shares"
+    );
+}
+
+#[test]
+fn test_pause_emits_paused_event_with_correct_payload() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -68,10 +227,19 @@ fn test_pause_emits_paused_event() {
 
     let pause_events = find_events_by_topic(env.events().all(), &env, symbol_short!("paused"));
     assert!(!pause_events.is_empty(), "Pause should emit an event");
+
+    let (_, _, data) = &pause_events[0];
+    let fields = parse_event_data_as_vec(&env, data.clone());
+    assert_eq!(fields.len(), 1, "VaultPausedEvent should have 1 field");
+    assert_eq!(
+        extract_address(&env, &fields, 0),
+        owner,
+        "Event owner should match pauser"
+    );
 }
 
 #[test]
-fn test_unpause_emits_unpaused_event() {
+fn test_unpause_emits_unpaused_event_with_correct_payload() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -83,10 +251,19 @@ fn test_unpause_emits_unpaused_event() {
 
     let unpause_events = find_events_by_topic(env.events().all(), &env, symbol_short!("unpaused"));
     assert!(!unpause_events.is_empty(), "Unpause should emit an event");
+
+    let (_, _, data) = &unpause_events[0];
+    let fields = parse_event_data_as_vec(&env, data.clone());
+    assert_eq!(fields.len(), 1, "VaultUnpausedEvent should have 1 field");
+    assert_eq!(
+        extract_address(&env, &fields, 0),
+        owner,
+        "Event owner should match unpauser"
+    );
 }
 
 #[test]
-fn test_emergency_pause_emits_emergency_event() {
+fn test_emergency_pause_emits_emergency_event_with_correct_payload() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -100,44 +277,84 @@ fn test_emergency_pause_emits_emergency_event() {
         !emergency_events.is_empty(),
         "Emergency pause should emit an event"
     );
+
+    let (_, _, data) = &emergency_events[0];
+    let fields = parse_event_data_as_vec(&env, data.clone());
+    assert_eq!(fields.len(), 1, "EmergencyPausedEvent should have 1 field");
+    assert_eq!(
+        extract_address(&env, &fields, 0),
+        agent,
+        "Event owner should match emergency pauser"
+    );
 }
 
 #[test]
-fn test_set_deposit_limits_emits_limits_event() {
+fn test_set_deposit_limits_emits_limits_event_with_correct_payload() {
     let env = Env::default();
     env.mock_all_auths();
 
     let (contract_id, _agent, _owner, _usdc_token) = setup_vault_with_token(&env);
     let client = NeuroWealthVaultClient::new(&env, &contract_id);
 
-    client.set_deposit_limits(&2_000_000_i128, &20_000_000_000_i128);
+    let new_min = 2_000_000_i128;
+    let new_max = 20_000_000_000_i128;
+    client.set_deposit_limits(&new_min, &new_max);
 
     let limits_events = find_events_by_topic(env.events().all(), &env, symbol_short!("l_upd"));
     assert!(
         !limits_events.is_empty(),
         "set_deposit_limits should emit a limits event"
     );
+
+    let (_, _, data) = &limits_events[0];
+    let fields = parse_event_data_as_vec(&env, data.clone());
+    assert_eq!(fields.len(), 4, "LimitsUpdatedEvent should have 4 fields");
+    assert_eq!(
+        extract_i128(&env, &fields, 2),
+        new_min,
+        "Event new_min should match set value"
+    );
+    assert_eq!(
+        extract_i128(&env, &fields, 3),
+        new_max,
+        "Event new_max should match set value"
+    );
 }
 
 #[test]
-fn test_update_agent_emits_agent_event() {
+fn test_update_agent_emits_agent_event_with_correct_payload() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (contract_id, _old_agent, _owner) = setup_vault(&env);
+    let (contract_id, old_agent, _owner) = setup_vault(&env);
     let client = NeuroWealthVaultClient::new(&env, &contract_id);
 
-    client.update_agent(&Address::generate(&env));
+    let new_agent = Address::generate(&env);
+    client.update_agent(&new_agent);
 
     let agent_events = find_events_by_topic(env.events().all(), &env, symbol_short!("agent"));
     assert!(
         !agent_events.is_empty(),
         "update_agent should emit an event"
     );
+
+    let (_, _, data) = &agent_events[0];
+    let fields = parse_event_data_as_vec(&env, data.clone());
+    assert_eq!(fields.len(), 2, "AgentUpdatedEvent should have 2 fields");
+    assert_eq!(
+        extract_address(&env, &fields, 0),
+        old_agent,
+        "Event old_agent should match previous agent"
+    );
+    assert_eq!(
+        extract_address(&env, &fields, 1),
+        new_agent,
+        "Event new_agent should match new agent"
+    );
 }
 
 #[test]
-fn test_update_total_assets_emits_assets_event() {
+fn test_update_total_assets_emits_assets_event_with_correct_payload() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -149,26 +366,43 @@ fn test_update_total_assets_emits_assets_event() {
     let deposit_amount = 10_000_000_i128;
     mint_and_deposit(&env, &client, &usdc_token, &user, deposit_amount);
 
+    let old_total = deposit_amount;
     let yield_amount = 5_000_000_i128;
+    let new_total = old_total + yield_amount;
     token_client.mint(&contract_id, &yield_amount);
-    client.update_total_assets(&agent, &(deposit_amount + yield_amount));
+    client.update_total_assets(&agent, &new_total);
 
     let assets_events = find_events_by_topic(env.events().all(), &env, symbol_short!("assets"));
     assert!(
         !assets_events.is_empty(),
         "update_total_assets should emit an event"
     );
+
+    let (_, _, data) = &assets_events[0];
+    let fields = parse_event_data_as_vec(&env, data.clone());
+    assert_eq!(fields.len(), 2, "AssetsUpdatedEvent should have 2 fields");
+    assert_eq!(
+        extract_i128(&env, &fields, 0),
+        old_total,
+        "Event old_total should match previous total"
+    );
+    assert_eq!(
+        extract_i128(&env, &fields, 1),
+        new_total,
+        "Event new_total should match new total"
+    );
 }
 
 #[test]
-fn test_rebalance_emits_rebalance_event() {
+fn test_rebalance_emits_rebalance_event_with_correct_payload() {
     let env = Env::default();
     env.mock_all_auths();
 
     let (contract_id, _agent, _owner, _usdc_token) = setup_vault_with_token(&env);
     let client = NeuroWealthVaultClient::new(&env, &contract_id);
 
-    client.rebalance(&symbol_short!("none"), &500_i128);
+    let expected_apy = 850_i128;
+    client.rebalance(&symbol_short!("none"), &expected_apy);
 
     let rebalance_events =
         find_events_by_topic(env.events().all(), &env, symbol_short!("rebalance"));
@@ -176,4 +410,96 @@ fn test_rebalance_emits_rebalance_event() {
         !rebalance_events.is_empty(),
         "rebalance should emit an event"
     );
+
+    let (_, _, data) = &rebalance_events[0];
+    let fields = parse_event_data_as_vec(&env, data.clone());
+    assert_eq!(fields.len(), 2, "RebalanceEvent should have 2 fields");
+    assert_eq!(
+        extract_symbol(&env, &fields, 0),
+        symbol_short!("none"),
+        "Event protocol should match rebalance target"
+    );
+    assert_eq!(
+        extract_i128(&env, &fields, 1),
+        expected_apy,
+        "Event expected_apy should match provided APY"
+    );
+}
+
+#[test]
+fn test_rebalance_with_blend_emits_correct_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, agent, _owner, usdc_token, blend_pool) =
+        setup_vault_with_token_and_blend(&env);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+
+    client.set_blend_pool(&agent, &blend_pool);
+
+    let user = Address::generate(&env);
+    mint_and_deposit(&env, &client, &usdc_token, &user, 10_000_000_i128);
+
+    let expected_apy = 1200_i128;
+    client.rebalance(&symbol_short!("blend"), &expected_apy);
+
+    let rebalance_events =
+        find_events_by_topic(env.events().all(), &env, symbol_short!("rebalance"));
+    let last_event = rebalance_events.last().unwrap();
+    let (_, _, data) = last_event;
+    let fields = parse_event_data_as_vec(&env, data.clone());
+    assert_eq!(
+        extract_symbol(&env, &fields, 0),
+        symbol_short!("blend"),
+        "Event protocol should be blend"
+    );
+    assert_eq!(
+        extract_i128(&env, &fields, 1),
+        expected_apy,
+        "Event expected_apy should match provided APY"
+    );
+}
+
+#[test]
+fn test_all_events_have_correct_topics() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, agent, owner, _usdc_token) = setup_vault_with_token(&env);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+
+    client.set_deposit_limits(&1_000_000_i128, &10_000_000_000_i128);
+    client.rebalance(&symbol_short!("none"), &500_i128);
+    client.pause(&owner);
+    client.unpause(&owner);
+    client.emergency_pause(&agent);
+
+    let init_events = find_events_by_topic(env.events().all(), &env, symbol_short!("init"));
+    let limits_events = find_events_by_topic(env.events().all(), &env, symbol_short!("l_upd"));
+    let rebalance_events =
+        find_events_by_topic(env.events().all(), &env, symbol_short!("rebalance"));
+    let paused_events = find_events_by_topic(env.events().all(), &env, symbol_short!("paused"));
+    let unpaused_events = find_events_by_topic(env.events().all(), &env, symbol_short!("unpaused"));
+    let emerg_events = find_events_by_topic(env.events().all(), &env, symbol_short!("emerg"));
+
+    assert!(!init_events.is_empty(), "Should have init events");
+    assert!(!limits_events.is_empty(), "Should have limits events");
+    assert!(!rebalance_events.is_empty(), "Should have rebalance events");
+    assert!(!paused_events.is_empty(), "Should have paused events");
+    assert!(!unpaused_events.is_empty(), "Should have unpaused events");
+    assert!(
+        !emerg_events.is_empty(),
+        "Should have emergency paused events"
+    );
+
+    for (addr, topics, _) in env.events().all().iter() {
+        assert_eq!(
+            addr, contract_id,
+            "All events should be from vault contract"
+        );
+        assert!(
+            topics.len() >= 1,
+            "Each event should have at least one topic"
+        );
+    }
 }
