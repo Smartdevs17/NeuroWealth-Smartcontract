@@ -204,6 +204,43 @@ pub mod blend {
             request.amount
         }
 
+        pub fn submit(env: Env, from: Address, to: Address, requests: Vec<crate::BlendRequest>) {
+            from.require_auth();
+
+            assert_eq!(requests.len(), 1, "expected one request");
+            let request = requests.get(0).unwrap();
+
+            let token_client = TestTokenClient::new(&env, &request.address);
+            let pool_balance = token_client.balance(&env.current_contract_address());
+
+            match request.request_type {
+                1 => {
+                    // Withdraw request (type 1)
+                    let amount_to_withdraw = core::cmp::min(request.amount, pool_balance);
+
+                    if amount_to_withdraw > 0 {
+                        token_client.transfer(
+                            &env.current_contract_address(),
+                            &to,
+                            &amount_to_withdraw,
+                        );
+
+                        // Update supplied tracking
+                        let total_supplied: i128 = env
+                            .storage()
+                            .persistent()
+                            .get(&BlendMockDataKey::Supplied(request.address.clone()))
+                            .unwrap_or(0);
+                        env.storage().persistent().set(
+                            &BlendMockDataKey::Supplied(request.address.clone()),
+                            &(total_supplied - amount_to_withdraw),
+                        );
+                    }
+                }
+                _ => panic!("unsupported request type in submit"),
+            }
+        }
+
         pub fn redeem(env: Env, asset: Address, amount: i128, to: Address) -> i128 {
             let token_client = TestTokenClient::new(&env, &asset);
             let pool_balance = token_client.balance(&env.current_contract_address());

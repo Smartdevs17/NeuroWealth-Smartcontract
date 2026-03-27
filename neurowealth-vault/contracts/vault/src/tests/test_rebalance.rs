@@ -269,3 +269,98 @@ fn test_rebalance_with_unsupported_protocol_panics() {
     // "balanced" is not a supported protocol — should panic
     client.rebalance(&symbol_short!("balanced"), &500_i128);
 }
+
+#[test]
+fn test_blend_supply_and_withdraw_with_events() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, _agent, owner, usdc_token, blend_pool) =
+        setup_vault_with_token_and_blend(&env);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+    let token_client = TestTokenClient::new(&env, &usdc_token);
+    let blend_client = MockBlendPoolClient::new(&env, &blend_pool);
+
+    // Configure Blend pool
+    client.set_blend_pool(&owner, &blend_pool);
+
+    // Deposit funds into vault
+    let user = Address::generate(&env);
+    let deposit_amount = 20_000_000_i128; // 20 USDC
+    mint_and_deposit(&env, &client, &usdc_token, &user, deposit_amount);
+
+    // Verify initial state
+    assert_eq!(client.get_total_assets(), deposit_amount);
+    assert_eq!(token_client.balance(&contract_id), deposit_amount);
+    assert_eq!(blend_client.supplied(&usdc_token), 0);
+
+    // Rebalance to Blend (supply)
+    client.rebalance(&symbol_short!("blend"), &850_i128);
+
+    // Verify funds moved to Blend
+    assert_eq!(
+        token_client.balance(&contract_id),
+        0,
+        "Vault should have 0 USDC after supply"
+    );
+    assert_eq!(
+        blend_client.supplied(&usdc_token),
+        deposit_amount,
+        "Blend should have all USDC"
+    );
+    assert_eq!(client.get_current_protocol(), symbol_short!("blend"));
+
+    // Verify BlendSupplyEvent was emitted
+    let supply_events = find_events_by_topic(env.events().all(), &env, symbol_short!("blend_sup"));
+    assert!(
+        !supply_events.is_empty(),
+        "BlendSupplyEvent should be emitted"
+    );
+
+    // User withdraws half their balance
+    let withdraw_amount = 10_000_000_i128; // 10 USDC
+    client.withdraw(&user, &withdraw_amount);
+
+    // Verify funds were pulled from Blend and given to user
+    assert_eq!(
+        token_client.balance(&user),
+        withdraw_amount,
+        "User should receive withdrawn USDC"
+    );
+    assert_eq!(
+        blend_client.supplied(&usdc_token),
+        deposit_amount - withdraw_amount,
+        "Blend should have remaining USDC"
+    );
+
+    // Verify BlendWithdrawEvent was emitted
+    let withdraw_events = find_events_by_topic(env.events().all(), &env, symbol_short!("blend_wd"));
+    assert!(
+        !withdraw_events.is_empty(),
+        "BlendWithdrawEvent should be emitted"
+    );
+
+    // Rebalance back to none (withdraw all from Blend)
+    client.rebalance(&symbol_short!("none"), &0_i128);
+
+    // Verify all funds withdrawn from Blend
+    assert_eq!(client.get_current_protocol(), symbol_short!("none"));
+    assert_eq!(
+        token_client.balance(&contract_id),
+        deposit_amount - withdraw_amount,
+        "Vault should have remaining USDC"
+    );
+    assert_eq!(
+        blend_client.supplied(&usdc_token),
+        0,
+        "Blend should have 0 USDC"
+    );
+
+    // Verify second BlendWithdrawEvent was emitted
+    let all_withdraw_events =
+        find_events_by_topic(env.events().all(), &env, symbol_short!("blend_wd"));
+    assert!(
+        all_withdraw_events.len() >= 2,
+        "Should have at least 2 BlendWithdrawEvents"
+    );
+}

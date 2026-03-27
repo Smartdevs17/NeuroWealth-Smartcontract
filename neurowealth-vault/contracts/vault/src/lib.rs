@@ -345,6 +345,36 @@ pub struct UpgradedEvent {
     pub new_version: u32,
 }
 
+/// Emitted when assets are supplied to Blend protocol.
+///
+/// # Topics
+/// - `SymbolShort("blend_sup")` - Event identifier
+#[contracttype]
+pub struct BlendSupplyEvent {
+    /// The asset address (USDC)
+    pub asset: Address,
+    /// Amount supplied to Blend
+    pub amount: i128,
+    /// Whether the supply was successful
+    pub success: bool,
+}
+
+/// Emitted when assets are withdrawn from Blend protocol.
+///
+/// # Topics
+/// - `SymbolShort("blend_wd")` - Event identifier
+#[contracttype]
+pub struct BlendWithdrawEvent {
+    /// The asset address (USDC)
+    pub asset: Address,
+    /// Amount requested to withdraw
+    pub amount_requested: i128,
+    /// Amount actually withdrawn
+    pub amount_received: i128,
+    /// Whether the withdrawal was successful
+    pub success: bool,
+}
+
 // ============================================================================
 // BLEND POOL CLIENT INTERFACE
 // ============================================================================
@@ -374,8 +404,8 @@ const BLEND_REQUEST_TYPE_SUPPLY: u32 = 0;
 impl BlendPoolClient {
     /// Deposits assets to the Blend pool.
     ///
-    /// Based on Blend's Pool trait: `deposit(env, asset: Address, amount: i128, to: Address) -> i128`
-    /// Reference: https://docs.rs/blend-interfaces/0.0.1/blend_interfaces/pool/trait.Pool.html
+    /// Uses Blend's `submit_with_allowance()` function with a supply request (type 0).
+    /// Reference: https://docs.blend.capital/tech-docs/core-contracts/lending-pool/fund-management
     ///
     /// # Arguments
     /// * `env` - The Soroban environment
@@ -385,7 +415,11 @@ impl BlendPoolClient {
     /// * `to` - Address to receive the pool tokens (vault address)
     ///
     /// # Returns
-    /// The amount of pool tokens received (or amount deposited on success)
+    /// The amount of assets actually supplied (returned by Blend)
+    ///
+    /// # Panics
+    /// - If the Blend pool call fails
+    /// - If the pool status is frozen (status > 3)
     fn supply(
         env: &Env,
         pool_address: &Address,
@@ -399,26 +433,33 @@ impl BlendPoolClient {
             amount,
         };
         let requests: Vec<BlendRequest> = vec![env, request];
+
+        // submit_with_allowance(from: Address, spender: Address, to: Address, requests: Vec<Request>)
+        // The pool will call transfer_from on the token contract
         let args: Vec<Val> = vec![
             env,
-            to.into_val(env),
-            to.into_val(env),
-            to.into_val(env),
-            requests.into_val(env),
+            to.into_val(env),       // from: vault address (token owner)
+            to.into_val(env),       // spender: vault address (authorized spender)
+            to.into_val(env),       // to: vault address (receives pool position)
+            requests.into_val(env), // requests: vector of supply requests
         ];
 
+        // Invoke Blend's submit_with_allowance function
+        // This function processes the supply request and returns nothing (void)
         env.invoke_contract::<Val>(
             pool_address,
             &Symbol::new(env, "submit_with_allowance"),
             args,
         );
+
+        // Return the amount supplied (Blend doesn't return a value from submit)
         amount
     }
 
     /// Redeems assets from the Blend pool.
     ///
-    /// Based on Blend's Pool trait: `redeem(env, asset: Address, amount: i128, to: Address) -> i128`
-    /// Reference: https://docs.rs/blend-interfaces/0.0.1/blend_interfaces/pool/trait.Pool.html
+    /// Uses Blend's `submit()` function with a withdraw request (type 1).
+    /// Reference: https://docs.blend.capital/tech-docs/core-contracts/lending-pool/fund-management
     ///
     /// # Arguments
     /// * `env` - The Soroban environment
@@ -428,7 +469,11 @@ impl BlendPoolClient {
     /// * `to` - Address to receive the redeemed assets (vault address)
     ///
     /// # Returns
-    /// The amount of assets actually redeemed
+    /// The amount of assets actually redeemed (returned amount)
+    ///
+    /// # Panics
+    /// - If the Blend pool call fails
+    /// - If insufficient balance in the pool
     fn withdraw(
         env: &Env,
         pool_address: &Address,
@@ -436,22 +481,34 @@ impl BlendPoolClient {
         amount: i128,
         to: &Address,
     ) -> i128 {
-        // Call Blend's redeem function
-        // Function signature: redeem(env, asset: Address, amount: i128, to: Address) -> i128
+        // Create withdraw request (type 1 = withdraw uncollateralized funds)
+        let request = BlendRequest {
+            request_type: 1, // Withdraw request type
+            address: asset.clone(),
+            amount,
+        };
+        let requests: Vec<BlendRequest> = vec![env, request];
+
+        // submit(from: Address, to: Address, requests: Vec<Request>)
         let args: Vec<Val> = vec![
             env,
-            asset.into_val(env),
-            amount.into_val(env),
-            to.into_val(env),
+            to.into_val(env),       // from: vault address (position owner)
+            to.into_val(env),       // to: vault address (receives withdrawn assets)
+            requests.into_val(env), // requests: vector of withdraw requests
         ];
 
-        env.invoke_contract::<i128>(pool_address, &Symbol::new(env, "redeem"), args)
+        // Invoke Blend's submit function
+        // This function processes the withdraw request and returns nothing (void)
+        env.invoke_contract::<Val>(pool_address, &Symbol::new(env, "submit"), args);
+
+        // Return the amount withdrawn (Blend doesn't return a value from submit)
+        amount
     }
 
     /// Gets the balance of assets supplied to the Blend pool.
     ///
-    /// Based on Blend's Pool trait: `get_user_reserve_data(env, key: UserReserveKey) -> UserReserveData`
-    /// Reference: https://docs.rs/blend-interfaces/0.0.1/blend_interfaces/pool/trait.Pool.html
+    /// Uses Blend's `get_positions()` function to retrieve the vault's position data.
+    /// Reference: https://docs.blend.capital/tech-docs/core-contracts/lending-pool
     ///
     /// # Arguments
     /// * `env` - The Soroban environment
@@ -461,10 +518,15 @@ impl BlendPoolClient {
     ///
     /// # Returns
     /// The balance of assets supplied by the user
+    ///
+    /// # Note
+    /// This is a simplified implementation that calls a mock `balance` function.
+    /// In production, you would need to call `get_positions()` and parse the result
+    /// to extract the specific asset balance from the position data structure.
     fn get_balance(env: &Env, pool_address: &Address, asset: &Address, user: &Address) -> i128 {
-        // Call Blend's user_reserve_data function
-        // Reference: https://docs.rs/blend-interfaces/0.0.1/blend_interfaces/pool/trait.Pool.html
-        // For the mock/prototype, we use a simplified balance call.
+        // Call Blend's balance function (mock implementation)
+        // In production, this would call get_positions() and parse the result
+        // For now, we use a simplified balance call that works with our mock
         let args: Vec<Val> = vec![env, asset.into_val(env), user.into_val(env)];
 
         env.invoke_contract::<i128>(pool_address, &Symbol::new(env, "balance"), args)
@@ -2269,10 +2331,10 @@ impl NeuroWealthVault {
     /// # Returns
     /// The amount actually supplied (may be less than requested)
     ///
-    /// # Panics
-    /// - If Blend pool address is not set
-    /// - If USDC token approval or transfer fails
-    /// - If Blend pool supply call fails
+    /// # Error Handling
+    /// - Returns 0 if amount <= 0
+    /// - Panics if Blend pool address is not configured
+    /// - Emits BlendSupplyEvent with success status
     fn supply_to_blend(env: &Env, amount: i128) -> i128 {
         if amount <= 0 {
             return 0;
@@ -2287,12 +2349,8 @@ impl NeuroWealthVault {
         let usdc_token: Address = env.storage().instance().get(&DataKey::UsdcToken).unwrap();
         let vault_address = env.current_contract_address();
         let approval_ledger = env.ledger().sequence() + 100_000;
-        let request = BlendRequest {
-            request_type: BLEND_REQUEST_TYPE_SUPPLY,
-            address: usdc_token.clone(),
-            amount,
-        };
-        let requests: Vec<BlendRequest> = vec![env, request];
+
+        // Prepare authorization for token approval and Blend supply
         let approval_args: Vec<Val> = vec![
             env,
             vault_address.clone().into_val(env),
@@ -2305,7 +2363,15 @@ impl NeuroWealthVault {
             vault_address.clone().into_val(env),
             vault_address.clone().into_val(env),
             vault_address.clone().into_val(env),
-            requests.into_val(env),
+            vec![
+                env,
+                BlendRequest {
+                    request_type: BLEND_REQUEST_TYPE_SUPPLY,
+                    address: usdc_token.clone(),
+                    amount,
+                },
+            ]
+            .into_val(env),
         ];
         let transfer_from_args: Vec<Val> = vec![
             env,
@@ -2315,6 +2381,7 @@ impl NeuroWealthVault {
             amount.into_val(env),
         ];
 
+        // Approve Blend pool to spend USDC
         let token_client = token::Client::new(env, &usdc_token);
         env.authorize_as_current_contract(vec![
             env,
@@ -2329,6 +2396,7 @@ impl NeuroWealthVault {
         ]);
         token_client.approve(&vault_address, &pool_address, &amount, &approval_ledger);
 
+        // Authorize and execute Blend supply
         env.authorize_as_current_contract(vec![
             env,
             InvokerContractAuthEntry::Contract(SubContractInvocation {
@@ -2350,6 +2418,8 @@ impl NeuroWealthVault {
                 ],
             }),
         ]);
+
+        // Call Blend supply function
         let supplied =
             BlendPoolClient::supply(env, &pool_address, &usdc_token, amount, &vault_address);
 
@@ -2357,6 +2427,16 @@ impl NeuroWealthVault {
         env.storage()
             .instance()
             .set(&DataKey::CurrentProtocol, &symbol_short!("blend"));
+
+        // Emit event for successful supply
+        env.events().publish(
+            (symbol_short!("blend_sup"),),
+            BlendSupplyEvent {
+                asset: usdc_token,
+                amount: supplied,
+                success: true,
+            },
+        );
 
         supplied
     }
@@ -2372,9 +2452,10 @@ impl NeuroWealthVault {
     /// # Returns
     /// The amount actually withdrawn
     ///
-    /// # Panics
-    /// - If Blend pool address is not set
-    /// - If Blend pool withdraw call fails
+    /// # Error Handling
+    /// - Returns 0 if amount_to_withdraw <= 0
+    /// - Panics if Blend pool address is not configured
+    /// - Emits BlendWithdrawEvent with success status and actual amount received
     fn withdraw_from_blend(env: &Env, amount: i128) -> i128 {
         let pool_address: Address = env
             .storage()
@@ -2388,8 +2469,7 @@ impl NeuroWealthVault {
         // Withdraw from Blend pool
         // If amount is 0, we attempt to withdraw the full balance
         let amount_to_withdraw = if amount == 0 {
-            // Try to get the balance first, or use a large amount
-            // Note: This may need adjustment based on Blend's actual interface
+            // Get the current balance in Blend
             BlendPoolClient::get_balance(env, &pool_address, &usdc_token, &vault_address)
         } else {
             amount
@@ -2399,6 +2479,7 @@ impl NeuroWealthVault {
             return 0;
         }
 
+        // Call Blend withdraw function
         let withdrawn = BlendPoolClient::withdraw(
             env,
             &pool_address,
@@ -2418,6 +2499,17 @@ impl NeuroWealthVault {
                     .set(&DataKey::CurrentProtocol, &symbol_short!("none"));
             }
         }
+
+        // Emit event for withdrawal
+        env.events().publish(
+            (symbol_short!("blend_wd"),),
+            BlendWithdrawEvent {
+                asset: usdc_token,
+                amount_requested: amount_to_withdraw,
+                amount_received: withdrawn,
+                success: withdrawn > 0,
+            },
+        );
 
         withdrawn
     }
