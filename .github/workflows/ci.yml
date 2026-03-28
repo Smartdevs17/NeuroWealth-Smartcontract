@@ -9,9 +9,6 @@ on:
   schedule:
     - cron: "0 3 * * 0"
 
-env:
-  CARGO_TARGET_DIR: ${{ runner.temp }}/neurowealth-target
-
 jobs:
   ci-matrix:
     name: CI Matrix
@@ -77,6 +74,8 @@ jobs:
       - name: Run ${{ matrix.name }}
         working-directory: ${{ matrix.working_directory }}
         shell: bash
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/neurowealth-target
         run: |
           set -euo pipefail
           case "${{ matrix.step }}" in
@@ -147,6 +146,8 @@ jobs:
 
       - name: Build contract WASM (MVP-compatible)
         working-directory: neurowealth-vault
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/neurowealth-target
         run: |
           RUSTFLAGS="-C target-cpu=mvp" cargo build \
             --target wasm32-unknown-unknown \
