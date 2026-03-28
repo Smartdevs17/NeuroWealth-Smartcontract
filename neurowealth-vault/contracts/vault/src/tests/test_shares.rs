@@ -133,6 +133,65 @@ fn test_convert_to_assets_returns_correct_amount() {
 }
 
 #[test]
+fn test_get_user_info_returns_principal_and_shares() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, _agent, _owner, usdc_token) = setup_vault_with_token(&env);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+
+    let user = Address::generate(&env);
+    let amount = 10_000_000_i128;
+
+    mint_and_deposit(&env, &client, &usdc_token, &user, amount);
+
+    let info = client.get_user_info(&user);
+    assert_eq!(info.principal, amount);
+    assert_eq!(info.shares, amount);
+}
+
+#[test]
+fn test_preview_helpers_bootstrap_case() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, _agent, _owner, _usdc_token) = setup_vault_with_token(&env);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+
+    let assets = 5_000_000_i128;
+    assert_eq!(client.preview_deposit_to_shares(&assets), assets);
+    assert_eq!(client.preview_shares_to_assets(&assets), 0);
+}
+
+#[test]
+fn test_preview_helpers_match_convert_helpers_with_yield_and_rounding() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, agent, _owner, usdc_token) = setup_vault_with_token(&env);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+    let token_client = TestTokenClient::new(&env, &usdc_token);
+
+    let user = Address::generate(&env);
+    mint_and_deposit(&env, &client, &usdc_token, &user, 12_000_000_i128);
+
+    token_client.mint(&contract_id, &8_000_000_i128);
+    client.update_total_assets(&agent, &20_000_000_i128);
+
+    let assets = 2_000_000_i128;
+    assert_eq!(
+        client.preview_deposit_to_shares(&assets),
+        client.convert_to_shares(&assets)
+    );
+
+    let shares = client.preview_deposit_to_shares(&assets);
+    assert_eq!(
+        client.preview_shares_to_assets(&shares),
+        client.convert_to_assets(&shares)
+    );
+}
+
+#[test]
 fn test_share_price_increases_after_yield() {
     let env = Env::default();
     env.mock_all_auths();

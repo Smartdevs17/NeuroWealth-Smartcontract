@@ -2,6 +2,7 @@ mod test_access_control;
 mod test_deposit;
 mod test_events;
 mod test_initialize;
+mod test_legacy_inline;
 mod test_limits;
 mod test_pause;
 mod test_rebalance;
