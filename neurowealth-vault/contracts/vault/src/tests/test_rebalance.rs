@@ -434,13 +434,11 @@ fn test_rebalance_blend_to_none_withdraws_all_and_updates_state_and_events() {
         .expect("blend_wd data should decode to BlendWithdrawEvent");
 
     assert_eq!(
-        blend_withdraw_event.requested_amount,
-        deposit_amount,
+        blend_withdraw_event.requested_amount, deposit_amount,
         "blend_wd requested_amount should match full deployed balance"
     );
     assert_eq!(
-        blend_withdraw_event.amount_received,
-        deposit_amount,
+        blend_withdraw_event.amount_received, deposit_amount,
         "blend_wd amount_received should match full withdrawal"
     );
     assert!(
