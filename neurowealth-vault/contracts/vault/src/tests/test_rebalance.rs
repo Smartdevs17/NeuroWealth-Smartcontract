@@ -1,7 +1,8 @@
 //! Tests for rebalance functionality
 
 use super::utils::*;
-use soroban_sdk::{symbol_short, testutils::Address as _, Address, Env};
+use crate::{BlendWithdrawEvent, RebalanceEvent};
+use soroban_sdk::{symbol_short, testutils::Address as _, Address, Env, TryFromVal};
 
 #[test]
 fn test_agent_can_rebalance_with_custom_protocol() {
@@ -362,5 +363,106 @@ fn test_blend_supply_and_withdraw_with_events() {
     assert!(
         all_withdraw_events.len() >= 2,
         "Should have at least 2 BlendWithdrawEvents"
+    );
+}
+
+#[test]
+fn test_rebalance_blend_to_none_withdraws_all_and_updates_state_and_events() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, _agent, owner, usdc_token, blend_pool) =
+        setup_vault_with_token_and_blend(&env);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+    let token_client = TestTokenClient::new(&env, &usdc_token);
+    let blend_client = MockBlendPoolClient::new(&env, &blend_pool);
+
+    client.set_blend_pool(&owner, &blend_pool);
+
+    let user = Address::generate(&env);
+    let deposit_amount = 30_000_000_i128;
+    mint_and_deposit(&env, &client, &usdc_token, &user, deposit_amount);
+
+    client.rebalance(&symbol_short!("blend"), &900_i128);
+
+    assert_eq!(
+        client.get_current_protocol(),
+        symbol_short!("blend"),
+        "CurrentProtocol should be 'blend' after rebalance to blend"
+    );
+    assert_eq!(
+        blend_client.supplied(&usdc_token),
+        deposit_amount,
+        "All deposited funds should be supplied to Blend"
+    );
+    assert_eq!(
+        token_client.balance(&contract_id),
+        0,
+        "Vault should hold no idle USDC while fully allocated to Blend"
+    );
+
+    let none_apy = 0_i128;
+    client.rebalance(&symbol_short!("none"), &none_apy);
+
+    assert_eq!(
+        client.get_current_protocol(),
+        symbol_short!("none"),
+        "CurrentProtocol should be 'none' after rebalance to none"
+    );
+    assert_eq!(
+        blend_client.supplied(&usdc_token),
+        0,
+        "Blend should be fully withdrawn after rebalance to none"
+    );
+    assert_eq!(
+        token_client.balance(&contract_id),
+        deposit_amount,
+        "All funds should be pulled back to vault after rebalance to none"
+    );
+
+    let blend_withdraw_events =
+        find_events_by_topic(env.events().all(), &env, symbol_short!("blend_wd"));
+    assert!(
+        !blend_withdraw_events.is_empty(),
+        "BlendWithdrawEvent should be emitted when switching blend -> none"
+    );
+
+    let (_, _, blend_withdraw_data) = blend_withdraw_events
+        .last()
+        .expect("Expected at least one blend_wd event");
+    let blend_withdraw_event = BlendWithdrawEvent::try_from_val(&env, blend_withdraw_data)
+        .expect("blend_wd data should decode to BlendWithdrawEvent");
+
+    assert_eq!(
+        blend_withdraw_event.requested_amount,
+        deposit_amount,
+        "blend_wd requested_amount should match full deployed balance"
+    );
+    assert_eq!(
+        blend_withdraw_event.amount_received,
+        deposit_amount,
+        "blend_wd amount_received should match full withdrawal"
+    );
+    assert!(
+        blend_withdraw_event.success,
+        "blend_wd event should mark withdrawal as successful"
+    );
+
+    let rebalance_events =
+        find_events_by_topic(env.events().all(), &env, symbol_short!("rebalance"));
+    let (_, _, rebalance_data) = rebalance_events
+        .last()
+        .expect("Expected rebalance event for none transition");
+    let rebalance_event = RebalanceEvent::try_from_val(&env, rebalance_data)
+        .expect("rebalance data should decode to RebalanceEvent");
+
+    assert_eq!(
+        rebalance_event.protocol,
+        symbol_short!("none"),
+        "rebalance event protocol should reflect target none"
+    );
+    assert_eq!(
+        rebalance_event.expected_apy, none_apy,
+        "rebalance event APY should match provided value"
     );
 }
