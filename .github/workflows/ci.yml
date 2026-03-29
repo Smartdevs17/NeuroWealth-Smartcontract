@@ -5,13 +5,30 @@ on:
     branches: ["main", "develop", "feat/**"]
   pull_request:
     branches: ["main", "develop"]
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * 0"
 
 jobs:
-  quality-gate:
-    name: Format, Lint & Test
+  ci-matrix:
+    name: CI Matrix
     runs-on: ubuntu-latest
-    env:
-      CARGO_TARGET_DIR: ${{ runner.temp }}/neurowealth-target
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "Format Check"
+            step: "fmt"
+            working_directory: "neurowealth-vault"
+          - name: "Clippy Lint"
+            step: "clippy"
+            working_directory: "neurowealth-vault"
+          - name: "Tests"
+            step: "test"
+            working_directory: "neurowealth-vault"
+          - name: "Build WASM"
+            step: "build-wasm"
+            working_directory: "neurowealth-vault"
 
     steps:
       - name: Checkout code
@@ -36,79 +53,66 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
+            ~/.local/bin/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Check formatting
-        working-directory: neurowealth-vault
-        run: cargo fmt --all -- --check
-
-      - name: Lint with Clippy
-        working-directory: neurowealth-vault
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
-      - name: Run vault tests
-        working-directory: neurowealth-vault/contracts/vault
-        run: cargo test --verbose
-
-      - name: Run main tests
-        working-directory: neurowealth-vault
-        run: cargo test --verbose
-
-  build:
-    name: Build WASM
-    runs-on: ubuntu-latest
-    needs: quality-gate
-    env:
-      CARGO_TARGET_DIR: ${{ runner.temp }}/neurowealth-target
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Rust toolchain with components
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: neurowealth-vault
-
       - name: Install Stellar CLI
+        if: matrix.step == 'build-wasm'
         run: |
+          mkdir -p "$HOME/.local/bin"
           curl -sSL https://github.com/stellar/soroban-tools/releases/download/v21.2.0/soroban-cli-21.2.0-x86_64-unknown-linux-gnu.tar.gz | tar -xz
-          sudo mv soroban /usr/local/bin/
+          mv soroban "$HOME/.local/bin/soroban"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           soroban --version
 
-      - name: Clean previous build artifacts
-        working-directory: neurowealth-vault
-        run: |
-          cargo clean
-          rm -rf "${CARGO_TARGET_DIR}"
-          mkdir -p "${CARGO_TARGET_DIR}"
+      - name: Install wasm-opt
+        if: matrix.step == 'build-wasm'
+        run: cargo install wasm-opt --locked
 
-      - name: Build contract WASM (MVP-compatible)
-        working-directory: neurowealth-vault
+      - name: Run ${{ matrix.name }}
+        working-directory: ${{ matrix.working_directory }}
+        shell: bash
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/neurowealth-target
         run: |
-          RUSTFLAGS="-C target-cpu=mvp" cargo build \
-            --target wasm32-unknown-unknown \
-            --release
-          cargo install wasm-opt --locked
-          wasm-opt --strip-target-features --mvp-features \
-            target/wasm32-unknown-unknown/release/neurowealth_vault.wasm \
-            -o target/wasm32-unknown-unknown/release/neurowealth_vault.wasm
+          set -euo pipefail
+          case "${{ matrix.step }}" in
+            fmt)
+              cargo fmt --all -- --check
+              ;;
+            clippy)
+              cargo clippy --all-targets --all-features -- -D warnings
+              ;;
+            test)
+              cargo test --verbose
+              ;;
+            build-wasm)
+              RUSTFLAGS="-C target-cpu=mvp" cargo build \
+                --target wasm32-unknown-unknown \
+                --release
+
+              WASM_DIR="${CARGO_TARGET_DIR:-target}/wasm32-unknown-unknown/release"
+              WASM_FILE="$WASM_DIR/neurowealth_vault.wasm"
+              wasm-opt --strip-target-features --mvp-features \
+                "$WASM_FILE" \
+                -o "$WASM_FILE"
+              ;;
+            *)
+              echo "Unknown step: ${{ matrix.step }}" >&2
+              exit 1
+              ;;
+          esac
 
   e2e-devnet:
     name: E2E Devnet Validation
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    needs: ci-matrix
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
 
     env:
-      CARGO_TARGET_DIR: ${{ runner.temp }}/neurowealth-target
       SOROBAN_RPC_URL: https://soroban-testnet.stellar.org
       SOROBAN_NETWORK_PASSPHRASE: "Test SDF Network ; September 2015"
 
@@ -128,21 +132,35 @@ jobs:
 
       - name: Install Stellar CLI
         run: |
-          cargo install --locked stellar-cli || cargo install --locked soroban-cli
-          stellar --version 2>/dev/null || soroban --version
+          if [[ -x "$HOME/.local/bin/soroban" ]]; then
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+            soroban --version
+            exit 0
+          fi
+
+          mkdir -p "$HOME/.local/bin"
+          curl -sSL https://github.com/stellar/soroban-tools/releases/download/v21.2.0/soroban-cli-21.2.0-x86_64-unknown-linux-gnu.tar.gz | tar -xz
+          mv soroban "$HOME/.local/bin/soroban"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          soroban --version
 
       - name: Install wasm-opt
         run: cargo install wasm-opt --locked
 
       - name: Build contract WASM (MVP-compatible)
         working-directory: neurowealth-vault
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/neurowealth-target
         run: |
           RUSTFLAGS="-C target-cpu=mvp" cargo build \
             --target wasm32-unknown-unknown \
             --release
+
+          WASM_DIR="${CARGO_TARGET_DIR:-target}/wasm32-unknown-unknown/release"
+          WASM_FILE="$WASM_DIR/neurowealth_vault.wasm"
           wasm-opt --strip-target-features --mvp-features \
-            target/wasm32-unknown-unknown/release/neurowealth_vault.wasm \
-            -o target/wasm32-unknown-unknown/release/neurowealth_vault.wasm
+            "$WASM_FILE" \
+            -o "$WASM_FILE"
 
       - name: Make scripts executable
         run: chmod +x scripts/e2e-devnet.sh scripts/e2e-restore.sh
