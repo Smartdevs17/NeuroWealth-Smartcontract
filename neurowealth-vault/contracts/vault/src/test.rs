@@ -137,7 +137,7 @@ fn test_set_deposit_limits_success() {
 }
 
 #[test]
-#[should_panic(expected = "vault: minimum deposit must be at least 1 USDC")]
+#[should_panic(expected = "vault: minimum deposit too low")]
 fn test_set_deposit_limits_min_too_low() {
     let env = Env::default();
     env.mock_all_auths();
@@ -152,7 +152,7 @@ fn test_set_deposit_limits_min_too_low() {
 }
 
 #[test]
-#[should_panic(expected = "vault: maximum deposit must be >= minimum")]
+#[should_panic(expected = "vault: maximum deposit below minimum")]
 fn test_set_deposit_limits_max_less_than_min() {
     let env = Env::default();
     env.mock_all_auths();
