@@ -92,9 +92,12 @@ jobs:
               RUSTFLAGS="-C target-cpu=mvp" cargo build \
                 --target wasm32-unknown-unknown \
                 --release
+
+              WASM_DIR="${CARGO_TARGET_DIR:-target}/wasm32-unknown-unknown/release"
+              WASM_FILE="$WASM_DIR/neurowealth_vault.wasm"
               wasm-opt --strip-target-features --mvp-features \
-                target/wasm32-unknown-unknown/release/neurowealth_vault.wasm \
-                -o target/wasm32-unknown-unknown/release/neurowealth_vault.wasm
+                "$WASM_FILE" \
+                -o "$WASM_FILE"
               ;;
             *)
               echo "Unknown step: ${{ matrix.step }}" >&2
@@ -152,9 +155,12 @@ jobs:
           RUSTFLAGS="-C target-cpu=mvp" cargo build \
             --target wasm32-unknown-unknown \
             --release
+
+          WASM_DIR="${CARGO_TARGET_DIR:-target}/wasm32-unknown-unknown/release"
+          WASM_FILE="$WASM_DIR/neurowealth_vault.wasm"
           wasm-opt --strip-target-features --mvp-features \
-            target/wasm32-unknown-unknown/release/neurowealth_vault.wasm \
-            -o target/wasm32-unknown-unknown/release/neurowealth_vault.wasm
+            "$WASM_FILE" \
+            -o "$WASM_FILE"
 
       - name: Make scripts executable
         run: chmod +x scripts/e2e-devnet.sh scripts/e2e-restore.sh
