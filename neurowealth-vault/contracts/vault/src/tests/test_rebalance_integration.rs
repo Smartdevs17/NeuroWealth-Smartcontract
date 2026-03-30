@@ -11,7 +11,6 @@
 
 extern crate std;
 
-
 use super::utils::*;
 use crate::{BlendSupplyEvent, BlendWithdrawEvent, RebalanceEvent};
 use soroban_sdk::{symbol_short, testutils::Address as _, Address, Env, TryFromVal};
@@ -26,22 +25,17 @@ fn vault_usdc_balance(env: &Env, token: &Address, contract_id: &Address) -> i128
 }
 
 /// Return all decoded RebalanceEvents emitted so far.
-fn collect_rebalance_events(
-    env: &Env,
-) -> std::vec::Vec<RebalanceEvent> {
+fn collect_rebalance_events(env: &Env) -> std::vec::Vec<RebalanceEvent> {
     find_events_by_topic(env.events().all(), env, symbol_short!("rebalance"))
         .into_iter()
         .map(|(_, _, data)| {
-            RebalanceEvent::try_from_val(env, &data)
-                .expect("data should decode to RebalanceEvent")
+            RebalanceEvent::try_from_val(env, &data).expect("data should decode to RebalanceEvent")
         })
         .collect()
 }
 
 /// Return all decoded BlendWithdrawEvents emitted so far.
-fn collect_blend_withdraw_events(
-    env: &Env,
-) -> std::vec::Vec<BlendWithdrawEvent> {
+fn collect_blend_withdraw_events(env: &Env) -> std::vec::Vec<BlendWithdrawEvent> {
     find_events_by_topic(env.events().all(), env, symbol_short!("blend_wd"))
         .into_iter()
         .map(|(_, _, data)| {
@@ -52,9 +46,7 @@ fn collect_blend_withdraw_events(
 }
 
 /// Return all decoded BlendSupplyEvents emitted so far.
-fn collect_blend_supply_events(
-    env: &Env,
-) -> std::vec::Vec<BlendSupplyEvent> {
+fn collect_blend_supply_events(env: &Env) -> std::vec::Vec<BlendSupplyEvent> {
     find_events_by_topic(env.events().all(), env, symbol_short!("blend_sup"))
         .into_iter()
         .map(|(_, _, data)| {
@@ -95,7 +87,10 @@ fn test_integration_rebalance_to_blend_with_pool_configured() {
     mint_and_deposit(&env, &client, &usdc_token, &user, deposit_amount);
 
     // Pre-rebalance state
-    assert_eq!(vault_usdc_balance(&env, &usdc_token, &contract_id), deposit_amount);
+    assert_eq!(
+        vault_usdc_balance(&env, &usdc_token, &contract_id),
+        deposit_amount
+    );
     assert_eq!(blend_client.supplied(&usdc_token), 0);
     assert_eq!(client.get_total_assets(), deposit_amount);
 
@@ -130,13 +125,19 @@ fn test_integration_rebalance_to_blend_with_pool_configured() {
 
     // ---- Emitted events ----
     let supply_events = collect_blend_supply_events(&env);
-    assert!(!supply_events.is_empty(), "BlendSupplyEvent must be emitted");
+    assert!(
+        !supply_events.is_empty(),
+        "BlendSupplyEvent must be emitted"
+    );
     let supply_event = supply_events.last().unwrap();
     assert_eq!(supply_event.amount, deposit_amount);
     assert!(supply_event.success);
 
     let rebalance_events = collect_rebalance_events(&env);
-    assert!(!rebalance_events.is_empty(), "RebalanceEvent must be emitted");
+    assert!(
+        !rebalance_events.is_empty(),
+        "RebalanceEvent must be emitted"
+    );
     let rebalance_event = rebalance_events.last().unwrap();
     assert_eq!(rebalance_event.protocol, symbol_short!("blend"));
     assert_eq!(rebalance_event.expected_apy, apy);
@@ -318,7 +319,10 @@ fn test_integration_rebalance_none_to_none_is_noop() {
 
     // A RebalanceEvent should still be emitted
     let rebalance_events = collect_rebalance_events(&env);
-    assert!(!rebalance_events.is_empty(), "RebalanceEvent must always be emitted");
+    assert!(
+        !rebalance_events.is_empty(),
+        "RebalanceEvent must always be emitted"
+    );
 }
 
 /// Full round-trip: none → blend → none → blend, validating state at each step.
@@ -348,7 +352,10 @@ fn test_integration_full_protocol_round_trip() {
     client.rebalance(&symbol_short!("none"), &0_i128);
     assert_eq!(client.get_current_protocol(), symbol_short!("none"));
     assert_eq!(blend_client.supplied(&usdc_token), 0);
-    assert_eq!(vault_usdc_balance(&env, &usdc_token, &contract_id), deposit_amount);
+    assert_eq!(
+        vault_usdc_balance(&env, &usdc_token, &contract_id),
+        deposit_amount
+    );
 
     // Step 3: none → blend again
     client.rebalance(&symbol_short!("blend"), &550_i128);
@@ -472,8 +479,7 @@ fn test_integration_asset_accounting_invariant_across_full_cycle() {
     client.withdraw(&user_a, &amount_a);
     let expected_in_blend = blend_client.supplied(&usdc_token);
     assert_eq!(
-        expected_in_blend,
-        amount_b,
+        expected_in_blend, amount_b,
         "Blend should retain only user B's share after user A withdraws"
     );
     assert_eq!(client.get_total_assets(), amount_b);
@@ -550,10 +556,17 @@ fn test_integration_blend_supply_event_fields_are_correct() {
     client.rebalance(&symbol_short!("blend"), &900_i128);
 
     let supply_events = collect_blend_supply_events(&env);
-    assert_eq!(supply_events.len(), 1, "Exactly one BlendSupplyEvent expected");
+    assert_eq!(
+        supply_events.len(),
+        1,
+        "Exactly one BlendSupplyEvent expected"
+    );
 
     let evt = &supply_events[0];
-    assert_eq!(evt.asset, usdc_token, "BlendSupplyEvent.asset must be the USDC token");
+    assert_eq!(
+        evt.asset, usdc_token,
+        "BlendSupplyEvent.asset must be the USDC token"
+    );
     assert_eq!(evt.amount, deposit_amount);
     assert!(evt.success);
 }
