@@ -1,4 +1,4 @@
-# Architecture Documentation
+# Architecture Documentation 
 
 This document describes the technical architecture of the NeuroWealth Vault contract, including storage layout, data structures, and integration patterns.
 
