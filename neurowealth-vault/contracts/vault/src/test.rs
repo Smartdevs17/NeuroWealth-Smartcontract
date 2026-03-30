@@ -14,69 +14,68 @@ enum TokenDataKey {
     Balance(Address),
 }
 
-#[contract]
-pub struct TestToken;
+mod token {
+    use super::*;
 
-#[contractimpl]
-impl TestToken {
-    pub fn mint(env: Env, to: Address, amount: i128) {
-        let balance: i128 = env
-            .storage()
-            .persistent()
-            .get(&TokenDataKey::Balance(to.clone()))
-            .unwrap_or(0);
-        env.storage()
-            .persistent()
-            .set(&TokenDataKey::Balance(to), &(balance + amount));
-    }
+    #[contract]
+    pub struct TestToken;
 
-    pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
-        from.require_auth();
-        assert!(amount > 0, "amount must be positive");
+    #[contractimpl]
+    impl TestToken {
+        pub fn mint(env: Env, to: Address, amount: i128) {
+            let balance: i128 = env
+                .storage()
+                .persistent()
+                .get(&TokenDataKey::Balance(to.clone()))
+                .unwrap_or(0);
+            env.storage()
+                .persistent()
+                .set(&TokenDataKey::Balance(to), &(balance + amount));
+        }
 
-        let from_balance: i128 = env
-            .storage()
-            .persistent()
-            .get(&TokenDataKey::Balance(from.clone()))
-            .unwrap_or(0);
-        assert!(from_balance >= amount, "insufficient balance");
+        pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
+            from.require_auth();
+            assert!(amount > 0, "amount must be positive");
 
-        let to_balance: i128 = env
-            .storage()
-            .persistent()
-            .get(&TokenDataKey::Balance(to.clone()))
-            .unwrap_or(0);
+            let from_balance: i128 = env
+                .storage()
+                .persistent()
+                .get(&TokenDataKey::Balance(from.clone()))
+                .unwrap_or(0);
+            assert!(from_balance >= amount, "insufficient balance");
 
-        env.storage()
-            .persistent()
-            .set(&TokenDataKey::Balance(from), &(from_balance - amount));
-        env.storage()
-            .persistent()
-            .set(&TokenDataKey::Balance(to), &(to_balance + amount));
-    }
+            let to_balance: i128 = env
+                .storage()
+                .persistent()
+                .get(&TokenDataKey::Balance(to.clone()))
+                .unwrap_or(0);
 
-    pub fn balance(env: Env, owner: Address) -> i128 {
-        env.storage()
-            .persistent()
-            .get(&TokenDataKey::Balance(owner))
-            .unwrap_or(0)
+            env.storage()
+                .persistent()
+                .set(&TokenDataKey::Balance(from), &(from_balance - amount));
+            env.storage()
+                .persistent()
+                .set(&TokenDataKey::Balance(to), &(to_balance + amount));
+        }
+
+        pub fn balance(env: Env, owner: Address) -> i128 {
+            env.storage()
+                .persistent()
+                .get(&TokenDataKey::Balance(owner))
+                .unwrap_or(0)
+        }
     }
 }
+
+use token::{TestToken, TestTokenClient};
+
 
 // ============================================================================
 // TEST SETUP FUNCTIONS
 // ============================================================================
 
 fn setup_vault(env: &Env) -> (Address, Address, Address) {
-    let contract_id = env.register_contract(None, NeuroWealthVault);
-    let client = NeuroWealthVaultClient::new(env, &contract_id);
-
-    let agent = Address::generate(env);
-    let usdc_token = Address::generate(env);
-    let owner = agent.clone();
-
-    client.initialize(&agent, &usdc_token);
-
+    let (contract_id, agent, owner, _usdc_token) = setup_vault_with_token(env);
     (contract_id, agent, owner)
 }
 
@@ -138,7 +137,7 @@ fn test_set_deposit_limits_success() {
 }
 
 #[test]
-#[should_panic(expected = "Minimum deposit must be at least 1 USDC")]
+#[should_panic(expected = "vault: minimum deposit too low")]
 fn test_set_deposit_limits_min_too_low() {
     let env = Env::default();
     env.mock_all_auths();
@@ -153,7 +152,7 @@ fn test_set_deposit_limits_min_too_low() {
 }
 
 #[test]
-#[should_panic(expected = "Maximum deposit must be greater than or equal to minimum")]
+#[should_panic(expected = "vault: maximum deposit below minimum")]
 fn test_set_deposit_limits_max_less_than_min() {
     let env = Env::default();
     env.mock_all_auths();
@@ -168,7 +167,7 @@ fn test_set_deposit_limits_max_less_than_min() {
 }
 
 #[test]
-#[should_panic(expected = "Below minimum deposit")]
+#[should_panic(expected = "vault: below minimum deposit")]
 fn test_deposit_below_minimum() {
     let env = Env::default();
     env.mock_all_auths();
@@ -189,7 +188,7 @@ fn test_deposit_below_minimum() {
 }
 
 #[test]
-#[should_panic(expected = "Exceeds maximum deposit")]
+#[should_panic(expected = "vault: exceeds maximum deposit")]
 fn test_deposit_above_maximum() {
     let env = Env::default();
     env.mock_all_auths();
@@ -252,7 +251,7 @@ fn test_deposit_at_maximum_succeeds() {
 }
 
 #[test]
-#[should_panic(expected = "Below minimum deposit")]
+#[should_panic(expected = "vault: below minimum deposit")]
 fn test_deposit_one_stroop_below_minimum() {
     let env = Env::default();
     env.mock_all_auths();
@@ -269,7 +268,7 @@ fn test_deposit_one_stroop_below_minimum() {
 }
 
 #[test]
-#[should_panic(expected = "Exceeds maximum deposit")]
+#[should_panic(expected = "vault: exceeds maximum deposit")]
 fn test_deposit_one_stroop_above_maximum() {
     let env = Env::default();
     env.mock_all_auths();
@@ -690,7 +689,7 @@ fn test_owner_can_upgrade() {
 }
 
 #[test]
-#[should_panic(expected = "Not authorized: caller is not the owner")]
+#[should_panic(expected = "vault: caller is not the owner")]
 fn test_non_owner_cannot_upgrade() {
     let env = Env::default();
     env.mock_all_auths();
@@ -746,3 +745,145 @@ fn test_upgrade_emits_upgraded_event() {
     assert_eq!(event_data.old_version, 1u32);
     assert_eq!(event_data.new_version, 2u32);
 }
+
+// ============================================================================
+// MOCK BLEND POOL CONTRACT
+// ============================================================================
+
+mod blend {
+    use super::*;
+
+    #[contract]
+    pub struct MockBlendPool;
+
+    #[contractimpl]
+    impl MockBlendPool {
+        pub fn submit_with_allowance(
+            env: Env,
+            _from: Address,
+            _to: Address,
+            _spender: Address,
+            requests: Vec<BlendRequest>,
+        ) {
+            // Simple mock: just transfer tokens from vault to pool
+            let usdc_token = requests.get(0).unwrap().address;
+            let amount = requests.get(0).unwrap().amount;
+            let pool = env.current_contract_address();
+            let vault = _from;
+
+            let token_client = TestTokenClient::new(&env, &usdc_token);
+            token_client.transfer(&vault, &pool, &amount);
+        }
+
+        pub fn redeem(env: Env, asset: Address, amount: i128, to: Address) -> i128 {
+            let token_client = TestTokenClient::new(&env, &asset);
+            let pool_balance = token_client.balance(&env.current_contract_address());
+
+            // Mock partial redemption: return only half of what's in the pool if requested > 0
+            // this simulates a protocol with limited liquidity
+            let actual_to_return = if amount > 0 {
+                core::cmp::min(amount, pool_balance / 2)
+            } else {
+                0
+            };
+
+            if actual_to_return > 0 {
+                token_client.transfer(&env.current_contract_address(), &to, &actual_to_return);
+            }
+            actual_to_return
+        }
+
+        pub fn balance(env: Env, asset: Address, _user: Address) -> i128 {
+            TestTokenClient::new(&env, &asset).balance(&env.current_contract_address())
+        }
+    }
+}
+
+use blend::MockBlendPool;
+
+
+// ============================================================================
+// RECONCILIATION TESTS
+// ============================================================================
+
+#[test]
+fn test_withdraw_reconciles_partial_blend_redemption() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, _agent, _owner, usdc_token) = setup_vault_with_token(&env);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+    let token_client = TestTokenClient::new(&env, &usdc_token);
+
+    let pool_id = env.register_contract(None, MockBlendPool);
+    client.set_blend_pool(&pool_id);
+
+    let user = Address::generate(&env);
+    let deposit_amount = 10_000_000_i128; // 10 USDC
+
+    // 1. Initial Deposit
+    token_client.mint(&user, &deposit_amount);
+    client.deposit(&user, &deposit_amount);
+
+    // 2. Rebalance to Blend
+    client.rebalance(&symbol_short!("blend"), &800_i128);
+
+    // Verify funds moved to pool
+    assert_eq!(token_client.balance(&contract_id), 0);
+    assert_eq!(token_client.balance(&pool_id), deposit_amount);
+
+    // 3. User attempts to withdraw 6 USDC
+    // MockBlendPool will only return 5 USDC (half of its 10 USDC balance)
+    let withdraw_request = 6_000_000_i128;
+    client.withdraw(&user, &withdraw_request);
+
+    // 4. Verify Reconciliation
+    // User should have received 5 USDC, not 6.
+    assert_eq!(token_client.balance(&user), 5_000_000_i128);
+
+    // User's remaining shares should reflect that they only got 5 USDC.
+    // At 1:1 price, they should have 5,000,000 shares remaining (10M - 5M).
+    assert_eq!(client.get_shares(&user), 5_000_000_i128);
+
+    // Vault accounting should be consistent
+    assert_eq!(client.get_total_assets(), 5_000_000_i128);
+    assert_eq!(client.get_total_deposits(), 5_000_000_i128);
+}
+
+#[test]
+fn test_withdraw_all_reconciles_partial_blend_redemption() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, _agent, _owner, usdc_token) = setup_vault_with_token(&env);
+    let client = NeuroWealthVaultClient::new(&env, &contract_id);
+    let token_client = TestTokenClient::new(&env, &usdc_token);
+
+    let pool_id = env.register_contract(None, MockBlendPool);
+    client.set_blend_pool(&pool_id);
+
+    let user = Address::generate(&env);
+    let deposit_amount = 20_000_000_i128; // 20 USDC
+
+    // 1. Initial Deposit
+    token_client.mint(&user, &deposit_amount);
+    client.deposit(&user, &deposit_amount);
+
+    // 2. Rebalance to Blend
+    client.rebalance(&symbol_short!("blend"), &800_i128);
+
+    // 3. User attempts to withdraw_all (entitled to 20 USDC)
+    // MockBlendPool will only return 10 USDC (half of its 20 USDC balance)
+    client.withdraw_all(&user);
+
+    // 4. Verify Reconciliation
+    // User should have received 10 USDC
+    assert_eq!(token_client.balance(&user), 10_000_000_i128);
+
+    // User should still have 10,000,000 shares remaining
+    assert_eq!(client.get_shares(&user), 10_000_000_i128);
+
+    // Vault accounting should be consistent
+    assert_eq!(client.get_total_assets(), 10_000_000_i128);
+}
+

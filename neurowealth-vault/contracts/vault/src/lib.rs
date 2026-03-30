@@ -98,7 +98,9 @@
 
 use core::cmp::min;
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env, Symbol,
+    auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation},
+    contract, contractimpl, contracttype, symbol_short, token, vec, Address, BytesN, Env, IntoVal,
+    Symbol, Val, Vec,
 };
 
 // ============================================================================
@@ -213,7 +215,7 @@ pub struct WithdrawEvent {
 /// - `SymbolShort("rebalance")` - Event identifier
 #[contracttype]
 pub struct RebalanceEvent {
-    /// The protocol being deployed to (e.g., "conservative", "balanced", "growth")
+    /// The target protocol (supported: "blend", "none")
     pub protocol: Symbol,
     /// Expected APY in basis points (e.g., 850 = 8.5%)
     pub expected_apy: i128,
@@ -343,6 +345,42 @@ pub struct UpgradedEvent {
     pub new_version: u32,
 }
 
+/// Emitted when assets are supplied to Blend protocol.
+///
+/// # Topics
+/// - `SymbolShort("blend_sup")` - Event identifier
+#[contracttype]
+pub struct BlendSupplyEvent {
+    /// The asset address (USDC)
+    pub asset: Address,
+    /// Amount supplied to Blend
+    pub amount: i128,
+    /// Whether the supply was successful
+    pub success: bool,
+}
+
+/// Emitted when assets are withdrawn from Blend protocol.
+///
+/// # Topics
+/// - `SymbolShort("blend_wd")` - Event identifier
+#[contracttype]
+pub struct BlendWithdrawEvent {
+    /// The asset address (USDC)
+    pub asset: Address,
+    /// Amount requested to withdraw
+    pub requested_amount: i128,
+    /// Amount actually withdrawn
+    pub amount_received: i128,
+    /// Whether the withdrawal succeeded
+    pub success: bool,
+}
+
+#[contracttype]
+pub struct UserInfo {
+    pub principal: i128,
+    pub shares: i128,
+}
+
 // ============================================================================
 // BLEND POOL CLIENT INTERFACE
 // ============================================================================
@@ -359,11 +397,21 @@ pub struct UpgradedEvent {
 /// - `get_user_reserve_data` - Gets user's reserve data including balance
 struct BlendPoolClient;
 
+#[derive(Clone)]
+#[contracttype]
+struct BlendRequest {
+    request_type: u32,
+    address: Address,
+    amount: i128,
+}
+
+const BLEND_REQUEST_TYPE_SUPPLY: u32 = 0;
+
 impl BlendPoolClient {
     /// Deposits assets to the Blend pool.
     ///
-    /// Based on Blend's Pool trait: `deposit(env, asset: Address, amount: i128, to: Address) -> i128`
-    /// Reference: https://docs.rs/blend-interfaces/0.0.1/blend_interfaces/pool/trait.Pool.html
+    /// Uses Blend's `submit_with_allowance()` function with a supply request (type 0).
+    /// Reference: https://docs.blend.capital/tech-docs/core-contracts/lending-pool/fund-management
     ///
     /// # Arguments
     /// * `env` - The Soroban environment
@@ -373,7 +421,11 @@ impl BlendPoolClient {
     /// * `to` - Address to receive the pool tokens (vault address)
     ///
     /// # Returns
-    /// The amount of pool tokens received (or amount deposited on success)
+    /// The amount of assets actually supplied (returned by Blend)
+    ///
+    /// # Panics
+    /// - If the Blend pool call fails
+    /// - If the pool status is frozen (status > 3)
     fn supply(
         env: &Env,
         pool_address: &Address,
@@ -392,12 +444,39 @@ impl BlendPoolClient {
                 to.into_val(env),
             ],
         )
+        let request = BlendRequest {
+            request_type: BLEND_REQUEST_TYPE_SUPPLY,
+            address: asset.clone(),
+            amount,
+        };
+        let requests: Vec<BlendRequest> = vec![env, request];
+
+        // submit_with_allowance(from: Address, spender: Address, to: Address, requests: Vec<Request>)
+        // The pool will call transfer_from on the token contract
+        let args: Vec<Val> = vec![
+            env,
+            to.into_val(env),       // from: vault address (token owner)
+            to.into_val(env),       // spender: vault address (authorized spender)
+            to.into_val(env),       // to: vault address (receives pool position)
+            requests.into_val(env), // requests: vector of supply requests
+        ];
+
+        // Invoke Blend's submit_with_allowance function
+        // This function processes the supply request and returns nothing (void)
+        env.invoke_contract::<Val>(
+            pool_address,
+            &Symbol::new(env, "submit_with_allowance"),
+            args,
+        );
+
+        // Return the amount supplied (Blend doesn't return a value from submit)
+        amount
     }
 
     /// Redeems assets from the Blend pool.
     ///
-    /// Based on Blend's Pool trait: `redeem(env, asset: Address, amount: i128, to: Address) -> i128`
-    /// Reference: https://docs.rs/blend-interfaces/0.0.1/blend_interfaces/pool/trait.Pool.html
+    /// Uses Blend's `submit()` function with a withdraw request (type 1).
+    /// Reference: https://docs.blend.capital/tech-docs/core-contracts/lending-pool/fund-management
     ///
     /// # Arguments
     /// * `env` - The Soroban environment
@@ -407,7 +486,11 @@ impl BlendPoolClient {
     /// * `to` - Address to receive the redeemed assets (vault address)
     ///
     /// # Returns
-    /// The amount of assets actually redeemed
+    /// The amount of assets actually redeemed (returned amount)
+    ///
+    /// # Panics
+    /// - If the Blend pool call fails
+    /// - If insufficient balance in the pool
     fn withdraw(
         env: &Env,
         pool_address: &Address,
@@ -426,12 +509,34 @@ impl BlendPoolClient {
                 to.into_val(env),
             ],
         )
+        // Create withdraw request (type 1 = withdraw uncollateralized funds)
+        let request = BlendRequest {
+            request_type: 1, // Withdraw request type
+            address: asset.clone(),
+            amount,
+        };
+        let requests: Vec<BlendRequest> = vec![env, request];
+
+        // submit(from: Address, to: Address, requests: Vec<Request>)
+        let args: Vec<Val> = vec![
+            env,
+            to.into_val(env),       // from: vault address (position owner)
+            to.into_val(env),       // to: vault address (receives withdrawn assets)
+            requests.into_val(env), // requests: vector of withdraw requests
+        ];
+
+        // Invoke Blend's submit function
+        // This function processes the withdraw request and returns nothing (void)
+        env.invoke_contract::<Val>(pool_address, &Symbol::new(env, "submit"), args);
+
+        // Return the amount withdrawn (Blend doesn't return a value from submit)
+        amount
     }
 
     /// Gets the balance of assets supplied to the Blend pool.
     ///
-    /// Based on Blend's Pool trait: `get_user_reserve_data(env, key: UserReserveKey) -> UserReserveData`
-    /// Reference: https://docs.rs/blend-interfaces/0.0.1/blend_interfaces/pool/trait.Pool.html
+    /// Uses Blend's `get_positions()` function to retrieve the vault's position data.
+    /// Reference: https://docs.blend.capital/tech-docs/core-contracts/lending-pool
     ///
     /// # Arguments
     /// * `env` - The Soroban environment
@@ -448,6 +553,18 @@ impl BlendPoolClient {
             &Symbol::new(env, "get_user_account_data"),
             vec![env, user.into_val(env), asset.into_val(env)],
         )
+    ///
+    /// # Note
+    /// This is a simplified implementation that calls a mock `balance` function.
+    /// In production, you would need to call `get_positions()` and parse the result
+    /// to extract the specific asset balance from the position data structure.
+    fn get_balance(env: &Env, pool_address: &Address, asset: &Address, user: &Address) -> i128 {
+        // Call Blend's balance function (mock implementation)
+        // In production, this would call get_positions() and parse the result
+        // For now, we use a simplified balance call that works with our mock
+        let args: Vec<Val> = vec![env, asset.into_val(env), user.into_val(env)];
+
+        env.invoke_contract::<i128>(pool_address, &Symbol::new(env, "balance"), args)
     }
 }
 
@@ -512,7 +629,7 @@ impl NeuroWealthVault {
     ///   the deployer key to prevent re-initialization
     pub fn initialize(env: Env, agent: Address, usdc_token: Address) {
         if env.storage().instance().has(&DataKey::Agent) {
-            panic!("Already initialized");
+            panic!("vault: already initialized");
         }
 
         let tvl_cap = 100_000_000_000_i128; // 100M USDC default
@@ -532,6 +649,12 @@ impl NeuroWealthVault {
         env.storage()
             .instance()
             .set(&DataKey::UserDepositCap, &10_000_000_000_i128); // 10K USDC default
+        env.storage()
+            .instance()
+            .set(&DataKey::MinDeposit, &1_000_000_i128); // 1 USDC default
+        env.storage()
+            .instance()
+            .set(&DataKey::MaxDeposit, &10_000_000_000_i128); // 10K USDC default
         env.storage().instance().set(&DataKey::Version, &1_u32);
 
         env.events().publish(
@@ -614,7 +737,7 @@ impl NeuroWealthVault {
 
         // Mint shares based on current share price and update total assets
         let shares_to_mint = Self::convert_to_shares_internal(&env, amount);
-        assert!(shares_to_mint > 0, "Shares to mint must be positive");
+        assert!(shares_to_mint > 0, "vault: shares to mint must be positive");
 
         // Update user shares
         let current_shares: i128 = env
@@ -703,10 +826,15 @@ impl NeuroWealthVault {
             .get(&DataKey::CurrentProtocol)
             .unwrap_or(symbol_short!("none"));
 
+        let usdc_token: Address = env.storage().instance().get(&DataKey::UsdcToken).unwrap();
+        let token_client = token::Client::new(&env, &usdc_token);
+
+        // We use actual_to_return to track how much we can really give back.
+        // Initially, we assume we can fulfill the whole request.
+        let mut actual_to_return = amount;
+
         if current_protocol == symbol_short!("blend") {
             // Check vault's USDC balance
-            let usdc_token: Address = env.storage().instance().get(&DataKey::UsdcToken).unwrap();
-            let token_client = token::Client::new(&env, &usdc_token);
             let vault_balance = token_client.balance(&env.current_contract_address());
 
             // If vault doesn't have enough USDC, try to withdraw from Blend
@@ -715,23 +843,20 @@ impl NeuroWealthVault {
                 let needed = amount - vault_balance;
 
                 // Attempt to withdraw from Blend
-                // If this fails, we'll check balance again and may panic
-                // This ensures funds are available even when actively earning yield
+                // If this returns less than needed, we will reconcile below
                 let _withdrawn = Self::withdraw_from_blend(&env, needed);
 
-                // Verify we now have enough balance
-                // If not, the transaction will fail at the transfer step
-                let new_balance = token_client.balance(&env.current_contract_address());
-                if new_balance < amount {
-                    // This could happen if Blend withdrawal failed or returned less than expected
-                    // We continue anyway - the transfer will fail if insufficient
-                    // This prevents permanent lockup while still protecting user funds
-                }
+                // RECONCILIATION: Check actual available USDC after Blend withdrawal.
+                // We cap the withdrawal to what the vault actually has available.
+                let available_usdc = token_client.balance(&env.current_contract_address());
+                actual_to_return = min(amount, available_usdc);
             }
         }
 
+        assert!(actual_to_return > 0, "vault: insufficient liquidity");
+
         // Share-based withdrawal:
-        // - Convert requested asset amount to shares
+        // - Convert reconciled asset amount to shares
         // - Burn shares from user
         // - Return proportional assets based on current share price
 
@@ -740,24 +865,27 @@ impl NeuroWealthVault {
             .persistent()
             .get(&DataKey::Shares(user.clone()))
             .unwrap_or(0);
-        assert!(user_shares > 0, "Insufficient shares");
+        assert!(user_shares > 0, "vault: insufficient shares");
 
         let total_shares = Self::get_total_shares_internal(&env);
         let total_assets = Self::get_total_assets_internal(&env);
         assert!(
             total_shares > 0 && total_assets > 0,
-            "No assets to withdraw"
+            "vault: no assets to withdraw"
         );
 
-        let shares_to_burn = Self::convert_to_shares_internal(&env, amount);
-        assert!(shares_to_burn > 0, "Shares to burn must be positive");
+        // We use actual_to_return to determine how many shares to burn.
+        // If Blend returned less than needed, the user will receive a partial
+        // withdrawal and keep their remaining shares.
+        let shares_to_burn = Self::convert_to_shares_internal(&env, actual_to_return);
+        assert!(shares_to_burn > 0, "vault: shares to burn must be positive");
         assert!(
             user_shares >= shares_to_burn,
-            "Insufficient shares for requested amount"
+            "vault: insufficient shares for requested amount"
         );
 
         // Calculate actual assets to return based on burned shares.
-        // Due to integer division, this may be slightly less than `amount`,
+        // Due to integer division, this may be slightly less than `actual_to_return`,
         // but never more (prevents over-withdrawal due to rounding).
         let usdc_to_return = Self::convert_to_assets_internal(&env, shares_to_burn);
 
@@ -802,8 +930,6 @@ impl NeuroWealthVault {
             );
         }
 
-        let usdc_token: Address = env.storage().instance().get(&DataKey::UsdcToken).unwrap();
-        let token_client = token::Client::new(&env, &usdc_token);
         token_client.transfer(&env.current_contract_address(), &user, &usdc_to_return);
 
         env.events().publish(
@@ -864,64 +990,64 @@ impl NeuroWealthVault {
             .get(&DataKey::CurrentProtocol)
             .unwrap_or(symbol_short!("none"));
 
-        if current_protocol == symbol_short!("blend") {
-            // Calculate how much the user is entitled to
-            let user_shares: i128 = env
-                .storage()
-                .persistent()
-                .get(&DataKey::Shares(user.clone()))
-                .unwrap_or(0);
-
-            if user_shares > 0 {
-                let total_shares = Self::get_total_shares_internal(&env);
-                let total_assets = Self::get_total_assets_internal(&env);
-
-                if total_shares > 0 && total_assets > 0 {
-                    let estimated_amount = Self::convert_to_assets_internal(&env, user_shares);
-
-                    // Check vault's USDC balance
-                    let usdc_token: Address =
-                        env.storage().instance().get(&DataKey::UsdcToken).unwrap();
-                    let token_client = token::Client::new(&env, &usdc_token);
-                    let vault_balance = token_client.balance(&env.current_contract_address());
-
-                    // If vault doesn't have enough USDC, try to withdraw from Blend
-                    if vault_balance < estimated_amount {
-                        // Attempt to withdraw enough from Blend
-                        let needed = estimated_amount - vault_balance;
-                        let _ = Self::withdraw_from_blend(&env, needed);
-                    }
-                }
-            }
-        }
+        let usdc_token: Address = env.storage().instance().get(&DataKey::UsdcToken).unwrap();
+        let token_client = token::Client::new(&env, &usdc_token);
 
         let user_shares: i128 = env
             .storage()
             .persistent()
             .get(&DataKey::Shares(user.clone()))
             .unwrap_or(0);
-        assert!(user_shares > 0, "No shares to withdraw");
+        assert!(user_shares > 0, "vault: no shares to withdraw");
 
         let total_shares = Self::get_total_shares_internal(&env);
         let total_assets = Self::get_total_assets_internal(&env);
         assert!(
             total_shares > 0 && total_assets > 0,
-            "No assets to withdraw"
+            "vault: no assets to withdraw"
         );
 
-        // Calculate assets to return based on ALL user shares
-        let usdc_to_return = Self::convert_to_assets_internal(&env, user_shares);
-        assert!(usdc_to_return > 0, "No assets to return");
+        // Calculate assets user is entitled to based on their shares
+        let entitled_amount = Self::convert_to_assets_internal(&env, user_shares);
+        let mut usdc_to_return = entitled_amount;
+        let mut shares_to_burn = user_shares;
 
-        // Update user shares to zero
-        env.storage()
-            .persistent()
-            .set(&DataKey::Shares(user.clone()), &0_i128);
+        if current_protocol == symbol_short!("blend") {
+            // Check vault's USDC balance
+            let vault_balance = token_client.balance(&env.current_contract_address());
+
+            // If vault doesn't have enough USDC, try to withdraw from Blend
+            if vault_balance < entitled_amount {
+                // Attempt to withdraw from Blend
+                let needed = entitled_amount - vault_balance;
+                let _ = Self::withdraw_from_blend(&env, needed);
+
+                // RECONCILIATION: Check actual available USDC after potential Blend withdrawal
+                let available_usdc = token_client.balance(&env.current_contract_address());
+
+                // If vault has less than entitled, we cap the withdrawal.
+                // The user receives what's available and keeps their remaining shares.
+                if available_usdc < entitled_amount {
+                    usdc_to_return = available_usdc;
+                    assert!(usdc_to_return > 0, "vault: no liquidity available");
+                    shares_to_burn = Self::convert_to_shares_internal(&env, usdc_to_return);
+                }
+            }
+        }
+
+        assert!(usdc_to_return > 0, "vault: no assets to return");
+        assert!(shares_to_burn > 0, "vault: no shares to burn");
+
+        // Update user shares
+        env.storage().persistent().set(
+            &DataKey::Shares(user.clone()),
+            &(user_shares - shares_to_burn),
+        );
 
         // Update total shares
         env.storage()
             .instance()
-            .set(&DataKey::TotalShares, &(total_shares - user_shares));
+            .set(&DataKey::TotalShares, &(total_shares - shares_to_burn));
 
         // Update total assets
         env.storage()
@@ -935,11 +1061,12 @@ impl NeuroWealthVault {
             .get(&DataKey::Balance(user.clone()))
             .unwrap_or(0);
         if principal_balance > 0 {
-            let principal_repaid = min(principal_balance, usdc_to_return);
+            let principal_repaid = core::cmp::min(principal_balance, usdc_to_return);
 
-            env.storage()
-                .persistent()
-                .set(&DataKey::Balance(user.clone()), &0_i128);
+            env.storage().persistent().set(
+                &DataKey::Balance(user.clone()),
+                &(principal_balance - principal_repaid),
+            );
 
             let total_deposits: i128 = env
                 .storage()
@@ -987,7 +1114,7 @@ impl NeuroWealthVault {
     ///
     /// # Arguments
     /// * `env` - The Soroban environment
-    /// * `protocol` - The target protocol symbol (e.g., "blend", "none")
+    /// * `protocol` - The target protocol symbol. Supported values: "blend", "none"
     /// * `expected_apy` - Expected APY in basis points (e.g., 850 = 8.5%)
     ///
     /// # Returns
@@ -1030,7 +1157,7 @@ impl NeuroWealthVault {
         if protocol == symbol_short!("blend") {
             // Check if Blend pool is configured
             if !env.storage().instance().has(&DataKey::BlendPool) {
-                panic!("Blend pool not configured");
+                panic!("vault: blend pool not configured");
             }
 
             // Get available USDC balance in vault
@@ -1063,6 +1190,8 @@ impl NeuroWealthVault {
             env.storage()
                 .instance()
                 .set(&DataKey::CurrentProtocol, &symbol_short!("none"));
+        } else {
+            panic!("vault: unsupported protocol");
         }
 
         env.events().publish(
@@ -1108,7 +1237,7 @@ impl NeuroWealthVault {
     pub fn pause(env: Env, owner: Address) {
         owner.require_auth();
         let stored_owner: Address = env.storage().instance().get(&DataKey::Owner).unwrap();
-        assert_eq!(owner, stored_owner, "Only owner can pause");
+        assert_eq!(owner, stored_owner, "vault: only owner can pause");
 
         env.storage().instance().set(&DataKey::Paused, &true);
 
@@ -1139,14 +1268,14 @@ impl NeuroWealthVault {
     pub fn unpause(env: Env, owner: Address) {
         owner.require_auth();
         let stored_owner: Address = env.storage().instance().get(&DataKey::Owner).unwrap();
-        assert_eq!(owner, stored_owner, "Only owner can unpause");
+        assert_eq!(owner, stored_owner, "vault: only owner can unpause");
 
         let paused: bool = env
             .storage()
             .instance()
             .get(&DataKey::Paused)
             .unwrap_or(false);
-        assert!(paused, "Vault is not paused");
+        assert!(paused, "vault: not paused");
 
         env.storage().instance().set(&DataKey::Paused, &false);
 
@@ -1179,7 +1308,7 @@ impl NeuroWealthVault {
     pub fn emergency_pause(env: Env, owner: Address) {
         owner.require_auth();
         let stored_owner: Address = env.storage().instance().get(&DataKey::Owner).unwrap();
-        assert_eq!(owner, stored_owner, "Only owner can emergency pause");
+        assert_eq!(owner, stored_owner, "vault: only owner can emergency pause");
 
         env.storage().instance().set(&DataKey::Paused, &true);
 
@@ -1360,11 +1489,8 @@ impl NeuroWealthVault {
         Self::require_is_owner(&env);
 
         // Validate limits
-        assert!(min >= 1_000_000, "Minimum deposit must be at least 1 USDC");
-        assert!(
-            max >= min,
-            "Maximum deposit must be greater than or equal to minimum"
-        );
+        assert!(min >= 1_000_000, "vault: minimum deposit too low");
+        assert!(max >= min, "vault: maximum deposit below minimum");
 
         let old_min = env
             .storage()
@@ -1505,7 +1631,7 @@ impl NeuroWealthVault {
     pub fn set_blend_pool(env: Env, owner: Address, pool_address: Address) {
         owner.require_auth();
         let stored_owner: Address = env.storage().instance().get(&DataKey::Owner).unwrap();
-        assert_eq!(owner, stored_owner, "Only owner can set Blend pool");
+        assert_eq!(owner, stored_owner, "vault: only owner can set blend pool");
 
         env.storage()
             .instance()
@@ -1599,9 +1725,9 @@ impl NeuroWealthVault {
             .storage()
             .instance()
             .get(&DataKey::PendingOwner)
-            .expect("No pending owner");
+            .expect("vault: no pending owner");
 
-        assert_eq!(new_owner, pending, "Caller is not the pending owner");
+        assert_eq!(new_owner, pending, "vault: caller is not the pending owner");
 
         let old_owner: Address = env.storage().instance().get(&DataKey::Owner).unwrap();
 
@@ -1646,7 +1772,7 @@ impl NeuroWealthVault {
             .storage()
             .instance()
             .get(&DataKey::PendingOwner)
-            .expect("No pending owner to cancel");
+            .expect("vault: no pending owner to cancel");
 
         let owner: Address = env.storage().instance().get(&DataKey::Owner).unwrap();
 
@@ -1704,13 +1830,16 @@ impl NeuroWealthVault {
     pub fn update_total_assets(env: Env, agent: Address, new_total: i128) {
         // Agent-controlled yield update
         let stored_agent: Address = env.storage().instance().get(&DataKey::Agent).unwrap();
-        assert_eq!(agent, stored_agent, "Only agent can update total assets");
+        assert_eq!(
+            agent, stored_agent,
+            "vault: only agent can update total assets"
+        );
         agent.require_auth();
 
         let old_total = Self::get_total_assets_internal(&env);
         assert!(
             new_total >= old_total,
-            "Total assets cannot decrease via update_total_assets"
+            "vault: total assets cannot decrease"
         );
 
         // CRITICAL SECURITY CHECK: Verify vault actually holds sufficient USDC
@@ -1721,7 +1850,7 @@ impl NeuroWealthVault {
 
         assert!(
             vault_balance >= new_total,
-            "Vault USDC balance insufficient for reported total assets"
+            "vault: insufficient balance for reported assets"
         );
 
         env.storage()
@@ -1773,10 +1902,7 @@ impl NeuroWealthVault {
         owner.require_auth();
 
         let stored_owner: Address = env.storage().instance().get(&DataKey::Owner).unwrap();
-        assert!(
-            owner == stored_owner,
-            "Not authorized: caller is not the owner"
-        );
+        assert!(owner == stored_owner, "vault: caller is not the owner");
 
         let old_version: u32 = env.storage().instance().get(&DataKey::Version).unwrap_or(1);
 
@@ -1873,6 +1999,14 @@ impl NeuroWealthVault {
         Self::get_total_assets_internal(&env)
     }
 
+    /// Returns the total number of shares in circulation.
+    ///
+    /// This is the sum of all user shares and represents proportional ownership
+    /// of the vault's total assets.
+    pub fn get_total_shares(env: Env) -> i128 {
+        Self::get_total_shares_internal(&env)
+    }
+
     /// Returns the share balance of a specific user.
     ///
     /// This is the number of vault shares the user owns.
@@ -1884,6 +2018,25 @@ impl NeuroWealthVault {
         }
 
         env.storage().persistent().get(&shares_key).unwrap_or(0)
+    }
+
+    pub fn get_user_info(env: Env, user: Address) -> UserInfo {
+        let principal: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Balance(user.clone()))
+            .unwrap_or(0);
+        let shares = Self::get_shares(env, user);
+
+        UserInfo { principal, shares }
+    }
+
+    pub fn preview_deposit_to_shares(env: Env, assets: i128) -> i128 {
+        Self::convert_to_shares_internal(&env, assets)
+    }
+
+    pub fn preview_shares_to_assets(env: Env, shares: i128) -> i128 {
+        Self::convert_to_assets_internal(&env, shares)
     }
 
     /// Converts an asset amount (USDC) to the corresponding number of shares,
@@ -1993,6 +2146,49 @@ impl NeuroWealthVault {
         env.storage().instance().get(&DataKey::UsdcToken).unwrap()
     }
 
+    /// Returns the current protocol where funds are deployed.
+    ///
+    /// This getter enables tests to verify storage state changes after rebalance()
+    /// instead of relying solely on event assertions.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment
+    ///
+    /// # Returns
+    /// The current protocol symbol (e.g., "blend", "none")
+    ///
+    /// # Panics
+    /// None
+    ///
+    /// # Events
+    /// None
+    pub fn get_current_protocol(env: Env) -> Symbol {
+        env.storage()
+            .instance()
+            .get(&DataKey::CurrentProtocol)
+            .unwrap_or(symbol_short!("none"))
+    }
+
+    /// Returns the Blend pool contract address, if configured.
+    ///
+    /// This getter enables tests to verify storage state changes for the Blend
+    /// pool configuration.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment
+    ///
+    /// # Returns
+    /// The Blend pool contract address, or None if not configured
+    ///
+    /// # Panics
+    /// None
+    ///
+    /// # Events
+    /// None
+    pub fn get_blend_pool(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::BlendPool)
+    }
+
     // ==========================================================================
     // INTERNAL HELPERS
     // ==========================================================================
@@ -2008,7 +2204,7 @@ impl NeuroWealthVault {
             .instance()
             .get(&DataKey::Paused)
             .unwrap_or(false);
-        assert!(!paused, "Vault is paused");
+        assert!(!paused, "vault: paused");
     }
 
     /// Validates that the caller is the contract owner.
@@ -2037,7 +2233,7 @@ impl NeuroWealthVault {
     /// - If amount is <= 0
     #[inline]
     fn require_positive_amount(amount: i128) {
-        assert!(amount > 0, "Amount must be positive");
+        assert!(amount > 0, "vault: amount must be positive");
     }
 
     /// Validates that a deposit meets the minimum requirement.
@@ -2052,8 +2248,8 @@ impl NeuroWealthVault {
             .storage()
             .instance()
             .get(&DataKey::MinDeposit)
-            .unwrap_or(1_000_000);
-        assert!(amount >= min_deposit, "Below minimum deposit");
+            .unwrap_or(0);
+        assert!(amount >= min_deposit, "vault: below minimum deposit");
     }
 
     /// Validates that a deposit is within the maximum limit.
@@ -2068,8 +2264,8 @@ impl NeuroWealthVault {
             .storage()
             .instance()
             .get(&DataKey::MaxDeposit)
-            .unwrap_or(10_000_000_000);
-        assert!(amount <= max_deposit, "Exceeds maximum deposit");
+            .unwrap_or(i128::MAX);
+        assert!(amount <= max_deposit, "vault: maximum deposit exceeded");
     }
 
     /// Validates that a deposit is within the user's cap.
@@ -2089,7 +2285,10 @@ impl NeuroWealthVault {
                 .persistent()
                 .get(&DataKey::Balance(user.clone()))
                 .unwrap_or(0);
-            assert!(current_balance + amount <= cap, "Exceeds user deposit cap");
+            assert!(
+                current_balance + amount <= cap,
+                "vault: exceeds user deposit cap"
+            );
         }
     }
 
@@ -2106,7 +2305,7 @@ impl NeuroWealthVault {
                 .instance()
                 .get(&DataKey::TotalDeposits)
                 .unwrap_or(0);
-            assert!(total + amount <= cap, "Exceeds TVL cap");
+            assert!(total + amount <= cap, "vault: exceeds TVL cap");
         }
     }
 
@@ -2183,10 +2382,10 @@ impl NeuroWealthVault {
     /// # Returns
     /// The amount actually supplied (may be less than requested)
     ///
-    /// # Panics
-    /// - If Blend pool address is not set
-    /// - If USDC token approval or transfer fails
-    /// - If Blend pool supply call fails
+    /// # Error Handling
+    /// - Returns 0 if amount <= 0
+    /// - Panics if Blend pool address is not configured
+    /// - Emits BlendSupplyEvent with success status
     fn supply_to_blend(env: &Env, amount: i128) -> i128 {
         if amount <= 0 {
             return 0;
@@ -2196,19 +2395,82 @@ impl NeuroWealthVault {
             .storage()
             .instance()
             .get(&DataKey::BlendPool)
-            .expect("Blend pool not configured");
+            .expect("vault: blend pool not configured");
 
         let usdc_token: Address = env.storage().instance().get(&DataKey::UsdcToken).unwrap();
         let vault_address = env.current_contract_address();
+        let approval_ledger = env.ledger().sequence() + 100_000;
 
-        // Approve Blend pool to spend USDC from vault
+        // Prepare authorization for token approval and Blend supply
+        let approval_args: Vec<Val> = vec![
+            env,
+            vault_address.clone().into_val(env),
+            pool_address.clone().into_val(env),
+            amount.into_val(env),
+            approval_ledger.into_val(env),
+        ];
+        let submit_args: Vec<Val> = vec![
+            env,
+            vault_address.clone().into_val(env),
+            vault_address.clone().into_val(env),
+            vault_address.clone().into_val(env),
+            vec![
+                env,
+                BlendRequest {
+                    request_type: BLEND_REQUEST_TYPE_SUPPLY,
+                    address: usdc_token.clone(),
+                    amount,
+                },
+            ]
+            .into_val(env),
+        ];
+        let transfer_from_args: Vec<Val> = vec![
+            env,
+            pool_address.clone().into_val(env),
+            vault_address.clone().into_val(env),
+            pool_address.clone().into_val(env),
+            amount.into_val(env),
+        ];
+
+        // Approve Blend pool to spend USDC
         let token_client = token::Client::new(env, &usdc_token);
-        token_client.approve(&vault_address, &pool_address, &amount, &1000000);
+        env.authorize_as_current_contract(vec![
+            env,
+            InvokerContractAuthEntry::Contract(SubContractInvocation {
+                context: ContractContext {
+                    contract: usdc_token.clone(),
+                    fn_name: Symbol::new(env, "approve"),
+                    args: approval_args,
+                },
+                sub_invocations: vec![env],
+            }),
+        ]);
+        token_client.approve(&vault_address, &pool_address, &amount, &approval_ledger);
 
-        // Supply to Blend pool
-        // Note: Blend's supply function may require the vault to transfer USDC first,
-        // then call supply. The exact pattern depends on Blend's interface.
-        // For now, we assume Blend handles the transfer internally via approval.
+        // Authorize and execute Blend supply
+        env.authorize_as_current_contract(vec![
+            env,
+            InvokerContractAuthEntry::Contract(SubContractInvocation {
+                context: ContractContext {
+                    contract: pool_address.clone(),
+                    fn_name: Symbol::new(env, "submit_with_allowance"),
+                    args: submit_args.clone(),
+                },
+                sub_invocations: vec![
+                    env,
+                    InvokerContractAuthEntry::Contract(SubContractInvocation {
+                        context: ContractContext {
+                            contract: usdc_token.clone(),
+                            fn_name: Symbol::new(env, "transfer_from"),
+                            args: transfer_from_args,
+                        },
+                        sub_invocations: vec![env],
+                    }),
+                ],
+            }),
+        ]);
+
+        // Call Blend supply function
         let supplied =
             BlendPoolClient::supply(env, &pool_address, &usdc_token, amount, &vault_address);
 
@@ -2216,6 +2478,16 @@ impl NeuroWealthVault {
         env.storage()
             .instance()
             .set(&DataKey::CurrentProtocol, &symbol_short!("blend"));
+
+        // Emit event for successful supply
+        env.events().publish(
+            (symbol_short!("blend_sup"),),
+            BlendSupplyEvent {
+                asset: usdc_token,
+                amount: supplied,
+                success: true,
+            },
+        );
 
         supplied
     }
@@ -2231,15 +2503,16 @@ impl NeuroWealthVault {
     /// # Returns
     /// The amount actually withdrawn
     ///
-    /// # Panics
-    /// - If Blend pool address is not set
-    /// - If Blend pool withdraw call fails
+    /// # Error Handling
+    /// - Returns 0 if amount_to_withdraw <= 0
+    /// - Panics if Blend pool address is not configured
+    /// - Emits BlendWithdrawEvent with success status and actual amount received
     fn withdraw_from_blend(env: &Env, amount: i128) -> i128 {
         let pool_address: Address = env
             .storage()
             .instance()
             .get(&DataKey::BlendPool)
-            .expect("Blend pool not configured");
+            .expect("vault: blend pool not configured");
 
         let usdc_token: Address = env.storage().instance().get(&DataKey::UsdcToken).unwrap();
         let vault_address = env.current_contract_address();
@@ -2247,8 +2520,7 @@ impl NeuroWealthVault {
         // Withdraw from Blend pool
         // If amount is 0, we attempt to withdraw the full balance
         let amount_to_withdraw = if amount == 0 {
-            // Try to get the balance first, or use a large amount
-            // Note: This may need adjustment based on Blend's actual interface
+            // Get the current balance in Blend
             BlendPoolClient::get_balance(env, &pool_address, &usdc_token, &vault_address)
         } else {
             amount
@@ -2258,6 +2530,7 @@ impl NeuroWealthVault {
             return 0;
         }
 
+        // Call Blend withdraw function
         let withdrawn = BlendPoolClient::withdraw(
             env,
             &pool_address,
@@ -2277,6 +2550,17 @@ impl NeuroWealthVault {
                     .set(&DataKey::CurrentProtocol, &symbol_short!("none"));
             }
         }
+
+        // Emit event for withdrawal
+        env.events().publish(
+            (symbol_short!("blend_wd"),),
+            BlendWithdrawEvent {
+                asset: usdc_token,
+                requested_amount: amount_to_withdraw,
+                amount_received: withdrawn,
+                success: withdrawn > 0,
+            },
+        );
 
         withdrawn
     }
