@@ -234,6 +234,68 @@ Agent:   Withdrawing 100.23 USDC... ✅ Done!
          Funds sent to your wallet. Arrived in 4 seconds.
 
 Deployment
+Quick Start (Devnet)
+
+For testing and development, you can deploy to Stellar devnet in minutes:
+
+1. **Get a funded devnet account**
+   ```bash
+   # Visit https://laboratory.stellar.org/#account-creator
+   # Create an account and copy the secret key
+   ```
+
+2. **Set up environment**
+   ```bash
+   # Copy the template and add your secret key
+   cp .env.devnet.template .env.devnet
+   # Edit .env.devnet and add your SOROBAN_SECRET_KEY
+   ```
+
+3. **Build contracts**
+   ```bash
+   cd neurowealth-vault
+   cargo build --release --target wasm32-unknown-unknown
+   ```
+
+4. **Deploy to devnet**
+   ```bash
+   ./scripts/deploy-devnet.sh
+   ```
+
+5. **Start using the vault**
+   ```bash
+   # Source the deployed contract addresses
+   source scripts/devnet-contracts.env
+   
+   # Check your balance
+   stellar contract invoke \
+     --id $VAULT_CONTRACT_ID \
+     --source $AGENT_SECRET_KEY \
+     --network $SOROBAN_NETWORK_PASSPHRASE \
+     --rpc-url $SOROBAN_RPC_URL \
+     -- \
+     get_balance \
+     --user $AGENT_ADDRESS
+   
+   # Deposit 10 USDC
+   stellar contract invoke \
+     --id $VAULT_CONTRACT_ID \
+     --source $AGENT_SECRET_KEY \
+     --network $SOROBAN_NETWORK_PASSPHRASE \
+     --rpc-url $SOROBAN_RPC_URL \
+     -- \
+     deposit \
+     --user $AGENT_ADDRESS \
+     --amount 10000000
+   ```
+
+The deployment script will:
+- Deploy the USDC token contract
+- Deploy the NeuroWealth vault contract
+- Initialize the vault with your account as the AI agent
+- Mint 10,000 USDC for testing
+- Save all contract addresses to `scripts/devnet-contracts.env`
+
 Testnet
 bash# Deploy everything to Stellar testnet
 ./scripts/deploy.sh --network testnet

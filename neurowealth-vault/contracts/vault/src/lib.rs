@@ -1460,11 +1460,8 @@ impl NeuroWealthVault {
         Self::require_is_owner(&env);
 
         // Validate limits
-        assert!(
-            min >= 1_000_000,
-            "vault: minimum deposit must be at least 1 USDC"
-        );
-        assert!(max >= min, "vault: maximum deposit must be >= minimum");
+        assert!(min >= 1_000_000, "vault: minimum deposit too low");
+        assert!(max >= min, "vault: maximum deposit below minimum");
 
         let old_min = env
             .storage()
